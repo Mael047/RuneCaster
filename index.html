@@ -3,49 +3,114 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RUNCASTER – escena base</title>
+  <title>RUNCASTER</title>
   <style>
-    /* Que el canvas de Three.js ocupe toda la ventana, sin márgenes ni barras */
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a1a; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a1a;
+                 color: #e8e4ff; font-family: system-ui, sans-serif; }
     canvas { display: block; }
+    /* Lienzo 2D encima de la escena 3D: rastro de la varita/mano */
+    #rastro { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    body.modo-mouse #rastro { pointer-events: auto; cursor: crosshair; }
 
-    /* Interfaz 2D encima de la escena 3D (HTML normal, no Three.js) */
-    #hud {
-      position: fixed; top: 16px; left: 16px;
-      color: #e8e4ff; font: 600 16px/1.5 system-ui, sans-serif;
-      text-shadow: 0 1px 4px #000; pointer-events: none;
-    }
-    #ayuda {
-      position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-      color: #bdb6e6; font: 14px system-ui, sans-serif;
-      background: #0008; padding: 8px 14px; border-radius: 8px;
-    }
-    kbd { background: #fff2; padding: 1px 6px; border-radius: 4px; }
+    /* ---------- HUD ---------- */
+    #hud { position: fixed; top: 14px; left: 16px; font: 600 16px/1.6 system-ui;
+           text-shadow: 0 1px 4px #000; pointer-events: none; }
+    #barra-vida { width: 200px; height: 10px; background: #fff2; border-radius: 5px; overflow: hidden; }
+    #vida-relleno { height: 100%; width: 100%; background: linear-gradient(90deg, #ff5f7a, #ffb36b);
+                    transition: width .25s; }
+    #hud.golpe #barra-vida { outline: 2px solid #ff5f7a; }
+
+    /* Leyenda: qué runa vence a qué enemigo */
+    #leyenda { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+               display: flex; gap: 10px; pointer-events: none; }
+    .ficha { background: #000a; border-radius: 10px; padding: 6px 12px; font-size: 14px;
+             border: 1px solid #fff2; transition: opacity .3s; }
+    .ficha b { font-size: 20px; margin-right: 6px; }
+    .ficha.oculta { opacity: .25; }
+
+    /* Mensajes en el centro (oleada, runa fallida, etc.) */
+    #mensaje { position: fixed; top: 22%; left: 50%; transform: translateX(-50%);
+               font: 700 30px system-ui; text-align: center; text-shadow: 0 2px 10px #000;
+               opacity: 0; transition: opacity .25s; pointer-events: none; white-space: nowrap; }
+    #mensaje small { display: block; font: 400 17px system-ui; color: #cfc8ff; }
+    #mensaje.visible { opacity: 1; }
+
+    /* Vista pequeña de la cámara */
+    #camara { position: fixed; right: 14px; bottom: 14px; width: 190px; aspect-ratio: 4/3;
+              border-radius: 10px; overflow: hidden; border: 2px solid #fff3; display: none; }
+    body.modo-camara #camara { display: block; }
+    #camara video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+    /* Pantallas de inicio y fin */
+    .pantalla { position: fixed; inset: 0; display: grid; place-items: center;
+                background: #0b0a1ae6; text-align: center; }
+    .pantalla[hidden] { display: none; }
+    .pantalla h1 { font-size: 54px; letter-spacing: 6px; margin: 0 0 6px;
+                   background: linear-gradient(90deg, #66e0ff, #ff5fd2); -webkit-background-clip: text;
+                   background-clip: text; color: transparent; }
+    .pantalla p { max-width: 520px; margin: 10px auto; color: #cfc8ff; }
+    .pantalla button { font: 600 17px system-ui; padding: 12px 22px; margin: 6px; border: 0;
+                       border-radius: 10px; cursor: pointer; background: #7b5cff; color: #fff; }
+    .pantalla button.secundario { background: #3a2f6b; }
+    .reglas { display: flex; gap: 14px; justify-content: center; margin: 18px 0; }
+    .reglas div { background: #fff1; border-radius: 10px; padding: 10px 14px; min-width: 110px; }
+    .reglas b { display: block; font-size: 28px; }
+    #error { color: #ff8080; }
   </style>
 
-  <!--
-    "Import map": le dice al navegador de dónde sacar Three.js cuando el código
-    escriba `import * as THREE from 'three'`. Así no hay que instalar nada.
-  -->
   <script type="importmap">
     {
       "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
       }
     }
   </script>
 </head>
 <body>
+  <canvas id="rastro"></canvas>
+
   <div id="hud">
-    Vida de la torre: <span id="vida">100</span><br />
-    Puntaje: <span id="puntaje">0</span>
-  </div>
-  <div id="ayuda">
-    Simula las runas con el teclado:
-    <kbd>1</kbd> círculo · <kbd>2</kbd> línea · <kbd>3</kbd> triángulo
+    <div id="barra-vida"><div id="vida-relleno"></div></div>
+    Puntaje: <span id="puntaje">0</span> · Oleada <span id="oleada">1</span>
   </div>
 
-  <!-- type="module" permite usar import/export dentro de main.js -->
+  <div id="leyenda">
+    <div class="ficha" data-tipo="circulo"><b style="color:#66e0ff">◯</b>Orbe</div>
+    <div class="ficha" data-tipo="linea"><b style="color:#ffd23f">─</b>Lanza</div>
+    <div class="ficha" data-tipo="triangulo"><b style="color:#ff5fd2">△</b>Pico</div>
+  </div>
+
+  <div id="mensaje"></div>
+  <div id="camara"><video id="video"></video></div>
+
+  <div class="pantalla" id="inicio">
+    <div>
+      <h1>RUNCASTER</h1>
+      <p>Defiende la torre dibujando runas en el aire.
+         Cada enemigo cae con la runa que tiene su misma forma.</p>
+      <div class="reglas">
+        <div><b style="color:#66e0ff">◯</b>vence al Orbe</div>
+        <div><b style="color:#ffd23f">─</b>vence a la Lanza</div>
+        <div><b style="color:#ff5fd2">△</b>vence al Pico</div>
+      </div>
+      <button id="jugar-camara">✋ Jugar con la cámara</button>
+      <button id="jugar-mouse" class="secundario">🖱️ Jugar con el mouse</button>
+      <p id="estado"></p>
+      <p id="error"></p>
+      <p><small>Teclas de prueba: 1 = ◯ · 2 = ─ · 3 = △</small></p>
+    </div>
+  </div>
+
+  <div class="pantalla" id="fin" hidden>
+    <div>
+      <h1>Fin de la partida</h1>
+      <p>La torre resistió hasta la oleada <b id="fin-oleada">1</b>.</p>
+      <p style="font-size:24px">Puntaje: <b id="fin-puntaje">0</b></p>
+      <button id="otra-vez">Jugar de nuevo</button>
+    </div>
+  </div>
+
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
