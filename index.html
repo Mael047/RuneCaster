@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RUNCASTER – escena base</title>
+  <style>
+    /* Que el canvas de Three.js ocupe toda la ventana, sin márgenes ni barras */
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a1a; }
+    canvas { display: block; }
+
+    /* Interfaz 2D encima de la escena 3D (HTML normal, no Three.js) */
+    #hud {
+      position: fixed; top: 16px; left: 16px;
+      color: #e8e4ff; font: 600 16px/1.5 system-ui, sans-serif;
+      text-shadow: 0 1px 4px #000; pointer-events: none;
+    }
+    #ayuda {
+      position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+      color: #bdb6e6; font: 14px system-ui, sans-serif;
+      background: #0008; padding: 8px 14px; border-radius: 8px;
+    }
+    kbd { background: #fff2; padding: 1px 6px; border-radius: 4px; }
+  </style>
+
+  <!--
+    "Import map": le dice al navegador de dónde sacar Three.js cuando el código
+    escriba `import * as THREE from 'three'`. Así no hay que instalar nada.
+  -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="hud">
+    Vida de la torre: <span id="vida">100</span><br />
+    Puntaje: <span id="puntaje">0</span>
+  </div>
+  <div id="ayuda">
+    Simula las runas con el teclado:
+    <kbd>1</kbd> círculo · <kbd>2</kbd> línea · <kbd>3</kbd> triángulo
+  </div>
+
+  <!-- type="module" permite usar import/export dentro de main.js -->
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
