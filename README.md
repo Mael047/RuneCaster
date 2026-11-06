@@ -1,4 +1,4 @@
-# RUNCASTER
+# RUNECASTER
 
 Videojuego web para un jugador: defiende la torre dibujando runas en el aire con una varita física frente a la webcam.
 
