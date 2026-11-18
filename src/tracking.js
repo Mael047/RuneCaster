@@ -114,37 +114,113 @@ async function crearDetectorMano(delegado = 'GPU', avisarDelegado = () => {}) {
   };
 }
 
-// ---------- 2b. MODO COLOR (varita con bolita fluorescente) ----------
-// Reducimos la imagen a 160x120 para que sea rápido, y buscamos los
-// píxeles cuyo color se parece al color objetivo. El punto es el promedio
-// (centro) de todos esos píxeles.
+// ---------- 2b. MODO COLOR (varita con punta de color) ----------
+// Reducimos la imagen a 160x120 para que sea rápido y marcamos los píxeles
+// cuyo color se parece al color elegido. Para que un objeto del fondo con
+// un color parecido no "jale" el punto, buscamos la zona con MÁS píxeles
+// marcados (en una cuadrícula) y promediamos solo los píxeles cercanos a ella.
+// Si en el cuadro anterior ya veíamos la varita, preferimos la zona más
+// cercana a esa posición: la varita se mueve poco entre un cuadro y otro,
+// mientras que un objeto del fondo está en otro lugar.
+export const ANCHO_COLOR = 160, ALTO_COLOR = 120;
+const CELDA = 8;   // tamaño de cada celda de la cuadrícula, en píxeles
+
 function crearDetectorColor(config) {
-  const ANCHO = 160, ALTO = 120;
   const lienzo = document.createElement('canvas');
-  lienzo.width = ANCHO; lienzo.height = ALTO;
+  lienzo.width = ANCHO_COLOR; lienzo.height = ALTO_COLOR;
   const ctx = lienzo.getContext('2d', { willReadFrequently: true });
+  const columnas = ANCHO_COLOR / CELDA, filas = ALTO_COLOR / CELDA;
+  const celdas = new Uint16Array(columnas * filas);
+  // Máscara: 1 donde el píxel se parece al color (la usa la pantalla de calibración)
+  config.mascara = new Uint8Array(ANCHO_COLOR * ALTO_COLOR);
+  let ultimoCuadro = -1, ultimoResultado = null;
 
   return function detectarColor(video) {
-    ctx.drawImage(video, 0, 0, ANCHO, ALTO);
-    const { data } = ctx.getImageData(0, 0, ANCHO, ALTO);
-    const objetivo = config.colorHSV;          // { h: 0-360, s: 0-1, v: 0-1 }
-    let sumaX = 0, sumaY = 0, cuenta = 0;
+    if (video.currentTime === ultimoCuadro) return ultimoResultado;   // misma imagen
+    ultimoCuadro = video.currentTime;
 
-    for (let i = 0; i < data.length; i += 4) {
+    ctx.drawImage(video, 0, 0, ANCHO_COLOR, ALTO_COLOR);
+    const { data } = ctx.getImageData(0, 0, ANCHO_COLOR, ALTO_COLOR);
+    const objetivo = config.colorHSV;          // { h: 0-360, s: 0-1, v: 0-1 }
+    const mascara = config.mascara;
+    celdas.fill(0);
+    let total = 0;
+
+    // 1. Marcar los píxeles del color buscado
+    for (let p = 0, i = 0; p < mascara.length; p++, i += 4) {
       const { h, s, v } = rgbAHsv(data[i], data[i + 1], data[i + 2]);
       // Comparamos sobre todo el tono (h), que cambia poco con la luz
       let difTono = Math.abs(h - objetivo.h);
       if (difTono > 180) difTono = 360 - difTono;   // el tono es circular
-      if (difTono < config.toleranciaTono && s > config.saturacionMin && v > config.brilloMin) {
-        const p = i / 4;
-        sumaX += p % ANCHO;
-        sumaY += Math.floor(p / ANCHO);
-        cuenta++;
+      const coincide = difTono < config.toleranciaTono && s > config.saturacionMin && v > config.brilloMin;
+      mascara[p] = coincide ? 1 : 0;
+      if (coincide) {
+        total++;
+        const x = p % ANCHO_COLOR, y = (p / ANCHO_COLOR) | 0;
+        celdas[((y / CELDA) | 0) * columnas + ((x / CELDA) | 0)]++;
       }
     }
-    if (cuenta < config.pixelesMin) return null;    // muy pocos píxeles = ruido
-    return { x: sumaX / cuenta / ANCHO, y: sumaY / cuenta / ALTO };
+
+    // 2. La mejor celda: la que tiene más píxeles marcados, con ventaja para
+    //    las que están cerca de donde estaba la varita en el cuadro anterior
+    let mejor = -1, mejorPuntaje = 0;
+    for (let c = 0; c < celdas.length; c++) {
+      if (celdas[c] < 3) continue;
+      let puntaje = celdas[c];
+      if (ultimoResultado) {
+        const dx = ((c % columnas) + 0.5) / columnas - ultimoResultado.x;
+        const dy = (((c / columnas) | 0) + 0.5) / filas - ultimoResultado.y;
+        if (Math.hypot(dx, dy) < 0.15) puntaje *= 4;
+      }
+      if (puntaje > mejorPuntaje) { mejorPuntaje = puntaje; mejor = c; }
+    }
+    config.pixelesFuera = total;          // se corrige abajo si hay detección
+    if (mejor < 0) return (ultimoResultado = null);
+    const cx = (mejor % columnas) * CELDA + CELDA / 2;
+    const cy = ((mejor / columnas) | 0) * CELDA + CELDA / 2;
+
+    // 3. Promediar solo los píxeles marcados cerca de esa celda
+    const radio = CELDA * 2.5;
+    let sumaX = 0, sumaY = 0, cuenta = 0;
+    for (let y = Math.max(0, cy - radio | 0); y < Math.min(ALTO_COLOR, cy + radio); y++) {
+      for (let x = Math.max(0, cx - radio | 0); x < Math.min(ANCHO_COLOR, cx + radio); x++) {
+        if (mascara[y * ANCHO_COLOR + x]) { sumaX += x; sumaY += y; cuenta++; }
+      }
+    }
+    config.pixelesFuera = total - cuenta;  // píxeles del color que NO son la varita
+    if (cuenta < config.pixelesMin) return (ultimoResultado = null);   // muy pocos = ruido
+    return (ultimoResultado = { x: (sumaX / cuenta + 0.5) / ANCHO_COLOR, y: (sumaY / cuenta + 0.5) / ALTO_COLOR });
   };
+}
+
+// ---------- Cuentagotas ----------
+// Lee el color promedio de un cuadrito de la cámara alrededor de (x, y).
+// x, y entre 0 y 1, en coordenadas de PANTALLA (el video se ve en espejo).
+export function leerColor(video, x, y) {
+  const lienzo = document.createElement('canvas');
+  lienzo.width = video.videoWidth; lienzo.height = video.videoHeight;
+  const ctx = lienzo.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(video, 0, 0);
+  const px = Math.round((1 - x) * lienzo.width);          // deshacer el espejo
+  const py = Math.round(y * lienzo.height);
+  const lado = 7;
+  const { data } = ctx.getImageData(
+    Math.min(Math.max(0, px - 3), lienzo.width - lado),
+    Math.min(Math.max(0, py - 3), lienzo.height - lado), lado, lado);
+  let r = 0, g = 0, b = 0;
+  for (let i = 0; i < data.length; i += 4) { r += data[i]; g += data[i + 1]; b += data[i + 2]; }
+  const n = data.length / 4;
+  r = Math.round(r / n); g = Math.round(g / n); b = Math.round(b / n);
+  return { r, g, b, hsv: rgbAHsv(r, g, b) };
+}
+
+// Ajusta la detección al color elegido. Los mínimos de saturación y brillo
+// se calculan a partir del color, para que funcione también con colores
+// menos intensos que un fluorescente.
+export function fijarColor(configColor, hsv) {
+  configColor.colorHSV = hsv;
+  configColor.saturacionMin = Math.max(0.25, hsv.s * 0.6);
+  configColor.brilloMin = Math.max(0.2, hsv.v * 0.45);
 }
 
 export function rgbAHsv(r, g, b) {
@@ -165,10 +241,10 @@ export async function crearTracker({ video, modo = 'mano', delegado = 'GPU' }) {
   // Ajustes del modo color; se pueden cambiar en vivo desde la página de prueba
   const configColor = {
     colorHSV: { h: 120, s: 1, v: 1 },   // verde fluorescente por defecto
-    toleranciaTono: 20,                 // grados de diferencia permitidos
+    toleranciaTono: 12,                 // grados de diferencia permitidos
     saturacionMin: 0.45,
     brilloMin: 0.35,
-    pixelesMin: 15,
+    pixelesMin: 6,                      // mínimo de píxeles para aceptar la detección
   };
 
   const detectores = { mano: null, color: crearDetectorColor(configColor) };

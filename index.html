@@ -38,7 +38,7 @@
     /* Vista pequeña de la cámara */
     #camara { position: fixed; right: 14px; bottom: 14px; width: 190px; aspect-ratio: 4/3;
               border-radius: 10px; overflow: hidden; border: 2px solid #fff3; display: none; }
-    body.modo-camara #camara { display: block; }
+    body.modo-camara #camara, body.modo-color #camara { display: block; }
     #camara video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 
     /* Pantallas de inicio y fin */
@@ -52,16 +52,35 @@
     .pantalla button { font: 600 17px system-ui; padding: 12px 22px; margin: 6px; border: 0;
                        border-radius: 10px; cursor: pointer; background: #7b5cff; color: #fff; }
     .pantalla button.secundario { background: #3a2f6b; }
+    .pantalla button:disabled { opacity: .4; cursor: wait; }
+    .pantalla button.activo { background: #7b5cff; outline: 2px solid #cfc8ff; }
     .reglas { display: flex; gap: 14px; justify-content: center; margin: 18px 0; }
     .reglas div { background: #fff1; border-radius: 10px; padding: 10px 14px; min-width: 110px; }
     .reglas b { display: block; font-size: 28px; }
     #error { color: #ff8080; }
+
+    /* Pantalla de calibración del color */
+    #calibrar .contenido { display: flex; gap: 22px; align-items: center; text-align: left; }
+    #vista-calibrar { position: relative; height: min(66vh, 520px); aspect-ratio: 4/3;
+                      border-radius: 12px; overflow: hidden; border: 2px solid #fff3; cursor: crosshair; }
+    #vista-calibrar video, #vista-calibrar canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #vista-calibrar video { object-fit: cover; transform: scaleX(-1); }
+    #panel-calibrar { width: 270px; }
+    #panel-calibrar h1 { font-size: 30px; letter-spacing: 2px; }
+    #panel-calibrar ol { padding-left: 20px; margin: 10px 0; color: #cfc8ff; line-height: 1.5; }
+    #panel-calibrar label { display: block; margin-top: 12px; color: #cfc8ff; }
+    #panel-calibrar input[type=range] { width: 100%; }
+    #muestra-color { display: inline-block; width: 22px; height: 22px; border-radius: 6px;
+                     vertical-align: middle; border: 2px solid #fff6; background: #333; margin-left: 6px; }
+    #panel-calibrar .estado { margin-top: 12px; font-variant-numeric: tabular-nums; }
+    #panel-calibrar button { margin: 12px 6px 0 0; }
   </style>
 
   <script type="importmap">
     {
       "imports": {
         "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
         "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
       }
     }
@@ -73,12 +92,13 @@
   <div id="hud">
     <div id="barra-vida"><div id="vida-relleno"></div></div>
     Puntaje: <span id="puntaje">0</span> · Oleada <span id="oleada">1</span>
+    <div style="font-size:12px;font-weight:400;opacity:.7">Esc: pausa</div>
   </div>
 
   <div id="leyenda">
-    <div class="ficha" data-tipo="circulo"><b style="color:#66e0ff">◯</b>Orbe</div>
-    <div class="ficha" data-tipo="linea"><b style="color:#ffd23f">─</b>Lanza</div>
-    <div class="ficha" data-tipo="triangulo"><b style="color:#ff5fd2">△</b>Pico</div>
+    <div class="ficha" data-tipo="circulo"><b style="color:#66e0ff">◯</b>Orco</div>
+    <div class="ficha" data-tipo="linea"><b style="color:#ffd23f">─</b>Cangrejo</div>
+    <div class="ficha" data-tipo="triangulo"><b style="color:#ff5fd2">△</b>Demonio</div>
   </div>
 
   <div id="mensaje"></div>
@@ -88,17 +108,68 @@
     <div>
       <h1>RUNCASTER</h1>
       <p>Defiende la torre dibujando runas en el aire.
-         Cada enemigo cae con la runa que tiene su misma forma.</p>
+         Cada enemigo lleva encima la runa que lo vence.</p>
       <div class="reglas">
-        <div><b style="color:#66e0ff">◯</b>vence al Orbe</div>
-        <div><b style="color:#ffd23f">─</b>vence a la Lanza</div>
-        <div><b style="color:#ff5fd2">△</b>vence al Pico</div>
+        <div><b style="color:#66e0ff">◯</b>vence al Orco</div>
+        <div><b style="color:#ffd23f">─</b>vence al Cangrejo</div>
+        <div><b style="color:#ff5fd2">△</b>vence al Demonio</div>
       </div>
-      <button id="jugar-camara">✋ Jugar con la cámara</button>
-      <button id="jugar-mouse" class="secundario">🖱️ Jugar con el mouse</button>
+      <button id="jugar-camara" disabled>✋ Jugar con la cámara</button>
+      <button id="jugar-color" disabled>🪄 Jugar con varita (color)</button>
+      <button id="jugar-mouse" class="secundario" disabled>🖱️ Jugar con el mouse</button>
       <p id="estado"></p>
       <p id="error"></p>
       <p><small>Teclas de prueba: 1 = ◯ · 2 = ─ · 3 = △</small></p>
+    </div>
+  </div>
+
+  <div class="pantalla" id="calibrar" hidden>
+    <div class="contenido">
+      <div id="vista-calibrar">
+        <video id="video-calibrar" muted playsinline></video>
+        <canvas id="lienzo-calibrar"></canvas>
+      </div>
+      <div id="panel-calibrar">
+        <h1>Calibra tu varita</h1>
+        <ol>
+          <li>Pon la punta de color frente a la cámara.</li>
+          <li>Haz <b>clic sobre la punta</b> en el video para elegir su color.</li>
+          <li>Mueve la varita: el punto blanco debe seguirla.</li>
+        </ol>
+        <label>Color elegido: <span id="muestra-color"></span></label>
+        <label>Tolerancia: <span id="val-tolerancia-color">12</span>°
+          <input id="tolerancia-color" type="range" min="4" max="40" step="1" value="12" />
+        </label>
+        <label><input id="ver-mascara" type="checkbox" checked /> Resaltar lo que detecta</label>
+        <div class="estado">Detección: <b id="tasa-color">–</b></div>
+        <div id="aviso-color" hidden style="color:#ffcf6b;margin-top:8px">⚠️ Hay otras cosas de ese color en la imagen.
+          Baja la tolerancia o quítalas del fondo.</div>
+        <p style="font-size:13px;color:#a9a2d6">Si se resaltan cosas del fondo, baja la tolerancia
+           o elige un color que no esté en el fondo. Si la punta se pierde, súbela.</p>
+        <button id="color-listo" disabled>¡A jugar!</button>
+        <button id="color-volver" class="secundario">Volver</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="pantalla" id="pausa" hidden>
+    <div>
+      <h1>Pausa</h1>
+      <p>Oleada <b id="pausa-oleada">1</b> · Puntaje <b id="pausa-puntaje">0</b></p>
+      <button id="continuar">▶ Continuar</button>
+      <h3 style="margin:22px 0 4px">Cambiar modo de juego</h3>
+      <p style="margin:0 auto 6px;font-size:14px">La partida sigue donde la dejaste.</p>
+      <div>
+        <button data-modo-pausa="camara" class="secundario">✋ Mano</button>
+        <button data-modo-pausa="color" class="secundario">🪄 Varita (color)</button>
+        <button data-modo-pausa="mouse" class="secundario">🖱️ Mouse</button>
+      </div>
+      <div style="margin-top:14px">
+        <button id="pausa-calibrar" class="secundario">🎨 Calibrar color</button>
+        <button id="pausa-menu" class="secundario">⌂ Volver al menú</button>
+      </div>
+      <p id="pausa-estado"></p>
+      <p><small>Esc para continuar</small></p>
     </div>
   </div>
 
@@ -108,6 +179,7 @@
       <p>La torre resistió hasta la oleada <b id="fin-oleada">1</b>.</p>
       <p style="font-size:24px">Puntaje: <b id="fin-puntaje">0</b></p>
       <button id="otra-vez">Jugar de nuevo</button>
+      <button id="fin-menu" class="secundario">Volver al menú</button>
     </div>
   </div>
 

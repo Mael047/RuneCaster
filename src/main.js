@@ -17,17 +17,30 @@
 
 import * as THREE from 'three';
 import { crearEscena, Efectos, POSICION_TORRE } from './escena.js';
-import { TIPOS, crearEnemigo, animarEnemigo, centroEnemigo } from './enemigos.js';
-import { encenderCamara, crearTracker } from './tracking.js';
+import { TIPOS, crearEnemigo, animarEnemigo, centroEnemigo, mirarHacia, reproducirUnaVez } from './enemigos.js';
+import { cargarModelos } from './modelos.js';
+import { encenderCamara, crearTracker, leerColor, fijarColor, ANCHO_COLOR, ALTO_COLOR } from './tracking.js';
 import { reconocerRuna, SegmentadorTrazos, AJUSTES } from './runas.js';
 
 const $ = (id) => document.getElementById(id);
 
+// ---------- Modelos 3D ----------
+// Se cargan antes de todo; mientras tanto, los botones de inicio esperan.
+$('estado').textContent = 'Cargando modelos…';
+const modelos = await cargarModelos((n, total) => {
+  $('estado').textContent = `Cargando modelos… ${n}/${total}`;
+});
+$('estado').textContent = '';
+document.querySelectorAll('#inicio button').forEach((b) => (b.disabled = false));
+
 // ---------- Mundo ----------
-const { scene, camera, renderer, cristal, sacudir, actualizarCamara } = crearEscena();
+const { scene, camera, renderer, cristal, radioTorre, sacudir, actualizarCamara } = crearEscena(document.body, modelos);
 const efectos = new Efectos(scene);
-const enemigos = [];
+const enemigos = [];      // enemigos que avanzan (se les puede apuntar)
+const saliendo = [];      // enemigos muriendo o mordiendo la torre: { enemigo, quedan }
 const hechizos = [];
+// Distancia a la torre en la que un enemigo la alcanza
+const DISTANCIA_ATAQUE = radioTorre + 0.7;
 
 // ---------- Estado de la partida ----------
 const juego = {
@@ -85,7 +98,7 @@ function iniciarOleada(n) {
 function aparecerEnemigo() {
   const tipo = juego.porAparecer.shift();
   const pos = new THREE.Vector3(THREE.MathUtils.randFloatSpread(12), 0, -28);
-  const enemigo = crearEnemigo(tipo, pos, juego.multiplicadorVelocidad);
+  const enemigo = crearEnemigo(tipo, pos, juego.multiplicadorVelocidad, modelos);
   scene.add(enemigo);
   enemigos.push(enemigo);
 }
@@ -94,6 +107,29 @@ function eliminarEnemigo(enemigo) {
   scene.remove(enemigo);
   const i = enemigos.indexOf(enemigo);
   if (i >= 0) enemigos.splice(i, 1);
+}
+
+// Saca al enemigo de la partida, pero lo deja en escena mientras
+// termina una animación (morir o morder) y luego lo quita.
+function despedirEnemigo(enemigo, animacion) {
+  const i = enemigos.indexOf(enemigo);
+  if (i >= 0) enemigos.splice(i, 1);
+  const duracion = reproducirUnaVez(enemigo, animacion);
+  if (!duracion) { scene.remove(enemigo); return; }   // forma básica: sin animación
+  saliendo.push({ enemigo, quedan: duracion + 0.5 });
+}
+
+function actualizarSalientes(delta, tiempo) {
+  for (let i = saliendo.length - 1; i >= 0; i--) {
+    const s = saliendo[i];
+    s.quedan -= delta;
+    animarEnemigo(s.enemigo, delta, tiempo);
+    if (s.quedan < 0.3) s.enemigo.position.y -= delta * 3;   // se hunde al final
+    if (s.quedan <= 0) {
+      scene.remove(s.enemigo);
+      saliendo.splice(i, 1);
+    }
+  }
 }
 
 // ---------- Hechizos ----------
@@ -111,7 +147,7 @@ function buscarObjetivo(tipo) {
 }
 
 function lanzarHechizo(tipo) {
-  if (juego.estado !== 'jugando' && juego.estado !== 'descanso') return;
+  if (pausado || (juego.estado !== 'jugando' && juego.estado !== 'descanso')) return;
   const info = TIPOS[tipo];
   const origen = cristal.getWorldPosition(new THREE.Vector3());
   const objetivo = buscarObjetivo(tipo);
@@ -146,7 +182,7 @@ function actualizarHechizos(delta) {
       const e = h.objetivo;
       efectos.explosion(centroEnemigo(e, new THREE.Vector3()), TIPOS[e.userData.tipo].color, 22, 6);
       sumarPuntos(TIPOS[e.userData.tipo].puntos);
-      eliminarEnemigo(e);
+      despedirEnemigo(e, 'Death');
       quitarHechizo(i);
       continue;
     }
@@ -167,13 +203,14 @@ function actualizarEnemigos(delta, tiempo) {
   for (let i = enemigos.length - 1; i >= 0; i--) {
     const e = enemigos[i];
     dir.subVectors(POSICION_TORRE, e.position).setY(0);
-    if (dir.length() < 1.8) {                // llegó a la torre
+    if (dir.length() < DISTANCIA_ATAQUE) {   // llegó a la torre: muerde y desaparece
       const tipo = TIPOS[e.userData.tipo];
       efectos.explosion(centroEnemigo(e, new THREE.Vector3()), 0xff5f7a, 20, 5);
-      eliminarEnemigo(e);
+      despedirEnemigo(e, 'Bite_Front');
       recibirDanio(tipo.danio);
       continue;
     }
+    mirarHacia(e, dir);
     e.position.addScaledVector(dir.normalize(), e.userData.velocidad * delta);
     animarEnemigo(e, delta, tiempo);
   }
@@ -201,16 +238,24 @@ function terminarPartida() {
   $('fin').hidden = false;
 }
 
-function reiniciarPartida() {
+// Quita enemigos, hechizos y efectos, y deja vida y puntaje como al inicio
+function limpiarPartida() {
   for (const e of [...enemigos]) eliminarEnemigo(e);
+  for (const s of saliendo) scene.remove(s.enemigo);
+  saliendo.length = 0;
   for (let i = hechizos.length - 1; i >= 0; i--) quitarHechizo(i);
   efectos.limpiar();
   juego.vida = 100;
   juego.puntaje = 0;
+  juego.porAparecer = [];
   $('vida-relleno').style.width = '100%';
   $('puntaje').textContent = 0;
-  $('fin').hidden = true;
   segmentador.reiniciar();
+}
+
+function reiniciarPartida() {
+  limpiarPartida();
+  $('fin').hidden = true;
   iniciarOleada(1);
 }
 
@@ -260,7 +305,7 @@ addEventListener('keydown', (e) => { if (TECLAS[e.key]) lanzarHechizo(TECLAS[e.k
 // --- Mouse ---
 const puntoMouse = (e) => ({ x: e.clientX / innerWidth, y: e.clientY / innerHeight });
 lienzo.addEventListener('pointerdown', (e) => {
-  if (modo !== 'mouse') return;
+  if (modo !== 'mouse' || pausado) return;
   lienzo.setPointerCapture(e.pointerId);
   trazoMouse = [puntoMouse(e)];
 });
@@ -273,35 +318,333 @@ lienzo.addEventListener('pointerup', () => {
 });
 
 // --- Botones de inicio ---
+// Modos: 'camara' (mano con MediaPipe), 'color' (varita de color) y 'mouse'.
+// MediaPipe usa la tarjeta gráfica (GPU), que es lo más rápido.
+// Si en algún computador va mal, abrir el juego como index.html?cpu
+const DELEGADO = new URLSearchParams(location.search).has('cpu') ? 'CPU' : 'GPU';
+let stream = null;
+
+// Enciende la cámara y crea el tracker una sola vez; luego solo cambia de modo
+async function prepararCamara(modoTracker, elEstado = $('estado')) {
+  if (!stream) {
+    elEstado.textContent = 'Pidiendo permiso para la cámara…';
+    stream = await encenderCamara($('video'));
+  }
+  if (modoTracker === 'mano') {
+    elEstado.textContent = 'Cargando el modelo de la mano (unos segundos la primera vez)…';
+  }
+  if (!tracker) tracker = await crearTracker({ video: $('video'), modo: modoTracker, delegado: DELEGADO });
+  else await tracker.usarModo(modoTracker);
+  elEstado.textContent = '';
+}
+
+function mensajeErrorCamara(e) {
+  return e.name === 'NotAllowedError'
+    ? 'No se dio permiso para la cámara. Puedes jugar con el mouse.'
+    : 'No se pudo usar la cámara: ' + e.message;
+}
+
+function errorCamara(e) {
+  console.error(e);
+  $('estado').textContent = '';
+  $('error').textContent = mensajeErrorCamara(e);
+}
+
 $('jugar-mouse').addEventListener('click', () => empezar('mouse'));
 $('jugar-camara').addEventListener('click', async () => {
   $('error').textContent = '';
   try {
-    $('estado').textContent = 'Pidiendo permiso para la cámara…';
-    await encenderCamara($('video'));
-    $('estado').textContent = 'Cargando el modelo de la mano (unos segundos la primera vez)…';
-    // MediaPipe usa la tarjeta gráfica (GPU), que es lo más rápido.
-    // Si en algún computador va mal, abrir el juego como index.html?cpu
-    const delegado = new URLSearchParams(location.search).has('cpu') ? 'CPU' : 'GPU';
-    tracker = await crearTracker({ video: $('video'), modo: 'mano', delegado });
+    await prepararCamara('mano');
     empezar('camara');
-  } catch (e) {
-    console.error(e);
-    $('estado').textContent = '';
-    $('error').textContent = e.name === 'NotAllowedError'
-      ? 'No se dio permiso para la cámara. Puedes jugar con el mouse.'
-      : 'No se pudo usar la cámara: ' + e.message;
-  }
+  } catch (e) { errorCamara(e); }
+});
+$('jugar-color').addEventListener('click', async () => {
+  $('error').textContent = '';
+  try {
+    await prepararCamara('color');
+    abrirCalibracion('inicio');
+  } catch (e) { errorCamara(e); }
 });
 $('otra-vez').addEventListener('click', reiniciarPartida);
+$('fin-menu').addEventListener('click', volverAlMenu);
 
-function empezar(nuevoModo) {
+// Cambia el modo de entrada sin tocar la partida
+function aplicarModo(nuevoModo) {
   modo = nuevoModo;
   // El reconocedor corrige el estiramiento según la forma del área de dibujo
-  AJUSTES.aspecto = modo === 'camara' ? 4 / 3 : innerWidth / innerHeight;
-  document.body.classList.add(modo === 'camara' ? 'modo-camara' : 'modo-mouse');
+  AJUSTES.aspecto = modo === 'mouse' ? innerWidth / innerHeight : 4 / 3;
+  document.body.classList.remove('modo-camara', 'modo-color', 'modo-mouse');
+  document.body.classList.add('modo-' + modo);
+  segmentador.reiniciar();
+  trazoMouse = null;
+  puntoActual = null;
+}
+
+function empezar(nuevoModo) {
+  aplicarModo(nuevoModo);
   $('inicio').hidden = true;
+  $('calibrar').hidden = true;
   reiniciarPartida();
+}
+
+// =============================================================
+// PAUSA (tecla Esc)
+// Desde la pausa se puede continuar, cambiar de modo de juego sin perder
+// la partida, calibrar el color de la varita o volver al menú.
+// =============================================================
+let pausado = false;
+
+function pausar() {
+  if (pausado || (juego.estado !== 'jugando' && juego.estado !== 'descanso')) return;
+  pausado = true;
+  segmentador.reiniciar();
+  trazoMouse = null;
+  puntoActual = null;
+  $('pausa-oleada').textContent = juego.oleada;
+  $('pausa-puntaje').textContent = juego.puntaje;
+  $('pausa-estado').textContent = '';
+  marcarModoPausa();
+  $('pausa').hidden = false;
+}
+
+function continuar() {
+  if (!pausado) return;
+  calibrando = false;
+  $('calibrar').hidden = true;
+  $('pausa').hidden = true;
+  pausado = false;
+  segmentador.reiniciar();
+  reloj.getDelta();                     // que el tiempo en pausa no cuente
+  mostrarMensaje('▶', '', 600);
+}
+
+function marcarModoPausa() {
+  document.querySelectorAll('[data-modo-pausa]').forEach((b) =>
+    b.classList.toggle('activo', b.dataset.modoPausa === modo));
+}
+
+function bloquearPausa(bloquear) {
+  document.querySelectorAll('#pausa button').forEach((b) => (b.disabled = bloquear));
+}
+
+async function cambiarModoDesdePausa(nuevo) {
+  if (nuevo === modo) return;
+  $('pausa-estado').textContent = '';
+  bloquearPausa(true);
+  try {
+    if (nuevo === 'mouse') {
+      aplicarModo('mouse');
+    } else if (nuevo === 'camara') {
+      await prepararCamara('mano', $('pausa-estado'));
+      aplicarModo('camara');
+    } else {
+      await prepararCamara('color', $('pausa-estado'));
+      // Si ya hay un color elegido o guardado, se usa; si no, a calibrar
+      if (colorElegido || cargarColorGuardado()) aplicarModo('color');
+      else abrirCalibracion('pausa');
+    }
+  } catch (e) {
+    console.error(e);
+    $('pausa-estado').textContent = mensajeErrorCamara(e);
+    if (tracker && modo === 'camara') tracker.usarModo('mano');
+  } finally {
+    bloquearPausa(false);
+    marcarModoPausa();
+  }
+}
+
+document.querySelectorAll('[data-modo-pausa]').forEach((b) =>
+  b.addEventListener('click', () => cambiarModoDesdePausa(b.dataset.modoPausa)));
+$('continuar').addEventListener('click', continuar);
+$('pausa-menu').addEventListener('click', volverAlMenu);
+$('pausa-calibrar').addEventListener('click', async () => {
+  $('pausa-estado').textContent = '';
+  bloquearPausa(true);
+  try {
+    await prepararCamara('color', $('pausa-estado'));
+    abrirCalibracion('pausa');
+  } catch (e) {
+    console.error(e);
+    $('pausa-estado').textContent = mensajeErrorCamara(e);
+  } finally {
+    bloquearPausa(false);
+  }
+});
+
+function volverAlMenu() {
+  pausado = false;
+  calibrando = false;
+  limpiarPartida();
+  juego.estado = 'inicio';
+  for (const id of ['pausa', 'fin', 'calibrar']) $(id).hidden = true;
+  $('mensaje').classList.remove('visible');
+  $('inicio').hidden = false;
+}
+
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('calibrar').hidden && origenCalibracion === 'pausa') salirDeCalibracion();
+  else if (pausado) continuar();
+  else pausar();
+});
+// Si se cambia de pestaña o se minimiza la ventana, el juego se pausa solo
+document.addEventListener('visibilitychange', () => { if (document.hidden) pausar(); });
+
+// =============================================================
+// CALIBRACIÓN DEL COLOR (cuentagotas)
+// El jugador hace clic sobre la punta de la varita en el video. Se lee
+// ese color y la cámara empieza a buscarlo. El color queda guardado en
+// el navegador para la próxima vez.
+// =============================================================
+const CLAVE_COLOR = 'runcaster-color';
+let calibrando = false;
+let colorElegido = false;
+let origenCalibracion = 'inicio';  // 'inicio' o 'pausa': a dónde volver al terminar
+const historialDeteccion = [];   // últimos cuadros: 1 = detectó, 0 = no
+
+function abrirCalibracion(origen = 'inicio') {
+  origenCalibracion = origen;
+  const videoCal = $('video-calibrar');
+  videoCal.srcObject = stream;
+  videoCal.play();
+  $('color-listo').textContent = origen === 'pausa' ? 'Listo' : '¡A jugar!';
+  $('inicio').hidden = true;
+  $('pausa').hidden = true;
+  $('calibrar').hidden = false;
+  if (!colorElegido) cargarColorGuardado();
+  calibrando = true;
+  requestAnimationFrame(bucleCalibracion);
+}
+
+// ¿Hay un color guardado de una partida anterior? Devuelve true si lo aplicó.
+function cargarColorGuardado() {
+  try {
+    const guardado = JSON.parse(localStorage.getItem(CLAVE_COLOR));
+    if (!guardado) return false;
+    aplicarColor(guardado.rgb, guardado.hsv);
+    $('tolerancia-color').value = guardado.tolerancia;
+    $('tolerancia-color').dispatchEvent(new Event('input'));
+    return true;
+  } catch {
+    return false;   // sin almacenamiento: se elige de nuevo
+  }
+}
+
+function aplicarColor(rgb, hsv) {
+  fijarColor(tracker.configColor, hsv);
+  $('muestra-color').style.background = `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+  $('color-listo').disabled = false;
+  colorElegido = true;
+  historialDeteccion.length = 0;
+}
+
+// Salir de la calibración sin aplicar el modo color
+function salirDeCalibracion() {
+  calibrando = false;
+  $('calibrar').hidden = true;
+  if (origenCalibracion === 'pausa') {
+    // volver al modo con el que se estaba jugando
+    if (modo === 'camara' && tracker) tracker.usarModo('mano');
+    aplicarModo(modo);
+    marcarModoPausa();
+    $('pausa').hidden = false;
+  } else {
+    $('inicio').hidden = false;
+  }
+}
+
+function guardarColor() {
+  try {
+    localStorage.setItem(CLAVE_COLOR, JSON.stringify({
+      rgb: leerMuestra(), hsv: tracker.configColor.colorHSV,
+      tolerancia: tracker.configColor.toleranciaTono,
+    }));
+  } catch { /* no pasa nada si no se puede guardar */ }
+}
+function leerMuestra() {
+  const m = $('muestra-color').style.background.match(/\d+/g) || [0, 0, 0];
+  return { r: +m[0], g: +m[1], b: +m[2] };
+}
+
+// Cuentagotas: clic sobre el video
+$('vista-calibrar').addEventListener('click', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const color = leerColor($('video-calibrar'), (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+  if (color.hsv.s < 0.2) {
+    $('tasa-color').textContent = 'ese color es muy gris; elige uno más vivo';
+    return;
+  }
+  aplicarColor(color, color.hsv);
+});
+
+$('tolerancia-color').addEventListener('input', (e) => {
+  tracker.configColor.toleranciaTono = Number(e.target.value);
+  $('val-tolerancia-color').textContent = e.target.value;
+  historialDeteccion.length = 0;
+});
+
+$('color-listo').addEventListener('click', () => {
+  calibrando = false;
+  guardarColor();
+  if (origenCalibracion === 'pausa') {
+    // se sigue la misma partida, ahora con la varita; se vuelve a la pausa
+    aplicarModo('color');
+    marcarModoPausa();
+    $('calibrar').hidden = true;
+    $('pausa').hidden = false;
+  } else {
+    empezar('color');
+  }
+});
+$('color-volver').addEventListener('click', salirDeCalibracion);
+
+const lienzoCal = $('lienzo-calibrar');
+const ctxCal = lienzoCal.getContext('2d');
+const lienzoMascara = document.createElement('canvas');
+lienzoMascara.width = ANCHO_COLOR; lienzoMascara.height = ALTO_COLOR;
+const ctxMascara = lienzoMascara.getContext('2d');
+const imagenMascara = ctxMascara.createImageData(ANCHO_COLOR, ALTO_COLOR);
+
+function bucleCalibracion() {
+  if (!calibrando) return;
+  requestAnimationFrame(bucleCalibracion);
+  const r = lienzoCal.getBoundingClientRect();
+  if (lienzoCal.width !== Math.round(r.width)) { lienzoCal.width = r.width; lienzoCal.height = r.height; }
+  const w = lienzoCal.width, h = lienzoCal.height;
+  ctxCal.clearRect(0, 0, w, h);
+  if ($('color-listo').disabled) return;          // todavía no hay color elegido
+
+  const punto = tracker.detectar();
+
+  // Resaltar en rosado los píxeles que coinciden con el color
+  if ($('ver-mascara').checked && tracker.configColor.mascara) {
+    const m = tracker.configColor.mascara, px = imagenMascara.data;
+    for (let i = 0; i < m.length; i++) {
+      px[i * 4] = 255; px[i * 4 + 1] = 40; px[i * 4 + 2] = 200; px[i * 4 + 3] = m[i] ? 170 : 0;
+    }
+    ctxMascara.putImageData(imagenMascara, 0, 0);
+    ctxCal.save();
+    ctxCal.imageSmoothingEnabled = false;
+    ctxCal.translate(w, 0); ctxCal.scale(-1, 1);   // en espejo, como el video
+    ctxCal.drawImage(lienzoMascara, 0, 0, w, h);
+    ctxCal.restore();
+  }
+
+  // Punto detectado
+  if (punto) {
+    ctxCal.fillStyle = '#fff';
+    ctxCal.shadowColor = '#66e0ff'; ctxCal.shadowBlur = 18;
+    ctxCal.beginPath(); ctxCal.arc(punto.x * w, punto.y * h, 10, 0, Math.PI * 2); ctxCal.fill();
+    ctxCal.shadowBlur = 0;
+  }
+
+  // Porcentaje de detección en los últimos ~2 segundos
+  historialDeteccion.push(punto ? 1 : 0);
+  if (historialDeteccion.length > 120) historialDeteccion.shift();
+  const pct = Math.round(100 * historialDeteccion.reduce((a, b) => a + b, 0) / historialDeteccion.length);
+  $('tasa-color').textContent = punto ? `la veo ✓ (${pct}%)` : `no la veo (${pct}%)`;
+  // Aviso si hay otras cosas del mismo color en la imagen
+  $('aviso-color').hidden = !(tracker.configColor.pixelesFuera > 40);
 }
 
 // --- Dibujo del rastro sobre la pantalla ---
@@ -398,13 +741,15 @@ renderer.domElement.addEventListener('webglcontextlost', () =>
   mostrarError('La tarjeta gráfica dejó de dibujar (WebGL context lost).', 'dibujo'));
 
 function entrada() {
-  if (modo === 'camara' && tracker) {
+  if (pausado) { puntoActual = null; return; }
+  if ((modo === 'camara' || modo === 'color') && tracker) {
     puntoActual = tracker.detectar();
     if (juego.estado !== 'fin') segmentador.actualizar(puntoActual);
   }
 }
 
 function logica(delta, tiempo) {
+  if (pausado) return;                 // en pausa todo se queda quieto
   if (juego.estado === 'jugando') {
     juego.relojAparicion += delta;
     if (juego.porAparecer.length && juego.relojAparicion >= juego.intervalo) {
@@ -425,6 +770,7 @@ function logica(delta, tiempo) {
     actualizarEnemigos(delta, tiempo);
     actualizarHechizos(delta);
   }
+  actualizarSalientes(delta, tiempo);
   efectos.actualizar(delta);
   cristal.rotation.y += delta * 2;
   actualizarCamara(delta);

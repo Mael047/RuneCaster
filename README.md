@@ -15,13 +15,21 @@ No hay que instalar Three.js: se carga desde internet (mira el `importmap` en `i
 
 ## Cómo se juega
 
-Al abrir `index.html` se elige jugar con la cámara (mano) o con el mouse. Los enemigos avanzan por oleadas hacia la torre, y cada uno se vence con la runa que tiene su misma forma:
+Al abrir `index.html` se elige cómo jugar:
 
-| Enemigo | Forma | Runa | Comportamiento |
+- **✋ Cámara (mano):** MediaPipe sigue la punta del dedo índice.
+- **🪄 Varita (color):** la cámara sigue la punta de color de la varita. Antes de jugar se abre una pantalla de calibración: se hace clic sobre la punta en el video (como un cuentagotas) para elegir su color y se ajusta la tolerancia. Lo que coincide con el color se resalta en rosado. Si se resaltan cosas del fondo, hay que bajar la tolerancia o quitarlas. El color queda guardado en el navegador para la próxima vez.
+- **🖱️ Mouse:** se dibuja la runa arrastrando el mouse.
+
+Con **Esc** se pausa el juego (también se pausa solo al cambiar de pestaña). Desde la pausa se puede continuar, cambiar de modo de juego (mano, varita o mouse) sin perder la partida, volver a calibrar el color o volver al menú.
+
+ Los enemigos avanzan por oleadas hacia la torre, y cada uno se vence con la runa que lleva flotando encima:
+
+| Enemigo | Modelo | Runa | Comportamiento |
 |---|---|---|---|
-| Orbe | esfera azul | ◯ círculo | velocidad normal, rebota |
-| Lanza | barra amarilla | ─ línea | la más rápida |
-| Pico | pirámide rosada | △ triángulo | lenta, pero hace el doble de daño |
+| Orco | `Enemigos/Orc.fbx` | ◯ círculo | velocidad normal |
+| Cangrejo | `Enemigos/Crab.fbx` | ─ línea | el más rápido |
+| Demonio | `Enemigos/Enemy.fbx` | △ triángulo | lento, pero hace el doble de daño |
 
 - La runa lanza un hechizo al enemigo **más cercano de ese tipo** (lock-on automático).
 - Las oleadas 1, 2 y 3 presentan un enemigo nuevo cada una y sirven de tutorial. Desde la 4 aparecen los tres tipos mezclados y cada vez más rápidos.
@@ -35,7 +43,9 @@ Al abrir `index.html` se elige jugar con la cámara (mano) o con el mouse. Los e
 index.html                  juego: página, interfaz (HUD), pantallas de inicio y fin
 src/main.js                 juego: oleadas, hechizos, entrada (cámara/mouse/teclado), rastro
 src/escena.js               mundo 3D: cámara, luces, suelo, torre, decorado y partículas
-src/enemigos.js             los 3 tipos de enemigo (forma, color, velocidad, animación)
+src/enemigos.js             los 3 tipos de enemigo (modelo, runa, velocidad, animaciones)
+src/modelos.js              carga de los modelos FBX de Enemigos/ y Escenario/
+Enemigos/, Escenario/       modelos 3D (FBX)
 prueba-seguimiento.html     página de prueba del seguimiento (hipótesis H1)
 src/tracking.js             webcam + detección del punto (modo mano o modo color)
 src/prueba-seguimiento.js   lógica de la página de prueba: rastro y estadísticas
@@ -70,7 +80,21 @@ En una prueba con 900 trazos sintéticos (con temblor, rotación y deformación)
 
 Para hacer la prueba H2, abre `prueba-runas.html`. Se puede usar con la cámara o con el mouse. Escribe el nombre del participante, elige la runa que le pides dibujar y la página va contando aciertos por runa. Con "Copiar resultados" se copian todos los intentos para pegarlos en una hoja de cálculo.
 
-Pendiente (semana 5): reemplazar las formas básicas por modelos 3D (en `escena.js` y en `crearMalla()` de `enemigos.js`), agregar sonidos y pulir la interfaz.
+## Modelos 3D (`src/modelos.js`)
+
+Todos los modelos se cargan una vez al abrir el juego. Al cargarlos se corrigen tres cosas:
+
+- **Opacidad:** varios FBX exportados desde Blender traen opacidad 0, así que serían invisibles. Se pone en 1.
+- **Material:** se cambia a un material mate que reacciona mejor a las luces de la escena.
+- **Tamaño:** cada FBX viene en una escala distinta. Se escala a la `altura` de la lista y se apoya en el suelo.
+
+Para agregar un modelo, se añade una línea en `LISTA_MODELOS`. Si un modelo no carga, el juego usa una forma básica en su lugar.
+
+Los enemigos usan tres animaciones del FBX: `Walk` (avanzar), `Death` (al recibir un hechizo) y `Bite_Front` (al llegar a la torre).
+
+`PineTree.fbx`, `Rocks.fbx` y `floor_base.fbx` todavía no se usan, porque necesitan sus imágenes de textura (`BaseColor.png`, `Rocks.png` y `tiny_treats_texture_1.png`) y esas imágenes no están en la carpeta.
+
+Pendiente (semana 5): sonidos y pulir la interfaz.
 
 ## Publicar
 
