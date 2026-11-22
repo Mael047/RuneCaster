@@ -4,77 +4,324 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RUNCASTER</title>
+
   <style>
+    /* Fuente: Silkscreen (licencia libre OFL, archivos en ui/fuentes/).
+       Se parece a la 04b30 del diseño pero tiene tildes, ñ y ¡. Va incluida
+       en el proyecto para que el juego no dependa de internet. */
+    @font-face { font-family: 'Silkscreen'; font-weight: 400; font-display: block;
+                 src: url('ui/fuentes/silkscreen-400.woff2') format('woff2'); }
+    @font-face { font-family: 'Silkscreen'; font-weight: 700; font-display: block;
+                 src: url('ui/fuentes/silkscreen-700.woff2') format('woff2'); }
+    /* Los números (0-9), el % y el ° salen de Press Start 2P (también OFL),
+       porque en Silkscreen algunos, como el 4, no se leen bien. Como usa el mismo
+       nombre de familia con unicode-range, aplica en todo el juego sin
+       cambiar nada más. size-adjust lo iguala al alto de las letras, y la
+       clase .num (marcadores y mensajes) los baja a la misma línea. */
+    @font-face { font-family: 'Silkscreen'; font-weight: 400; font-display: block; size-adjust: 71%;
+                 unicode-range: U+0030-0039, U+0025, U+00B0;   /* números, % y ° */
+                 src: url('ui/fuentes/press-start-2p-numeros.woff2') format('woff2'); }
+    @font-face { font-family: 'Silkscreen'; font-weight: 700; font-display: block; size-adjust: 71%;
+                 unicode-range: U+0030-0039, U+0025, U+00B0;   /* números, % y ° */
+                 src: url('ui/fuentes/press-start-2p-numeros.woff2') format('woff2'); }
+
+    /* ---------- Colores del diseño (Figma) ---------- */
+    :root {
+      --s: 1;                         /* escala del lienzo de 1728x1117 (la calcula el script de abajo) */
+      --fuente: 'Silkscreen', monospace;
+      --tinta: #29235e;               /* texto oscuro */
+      --tinta-titulo: #20195f;
+      --crema: #fcedd9;               /* texto claro y botones de la pausa */
+      --arena: #ebc99b;               /* botones principales */
+      --gris: #d9d9d9;
+    }
+
     html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a1a;
-                 color: #e8e4ff; font-family: system-ui, sans-serif; }
+                 color: var(--crema); font-family: var(--fuente); font-weight: 700; }
+    button { font-weight: 700; }
     canvas { display: block; }
+    p { margin: 0; }
+    .num { position: relative; top: .1em; }
+
     /* Lienzo 2D encima de la escena 3D: rastro de la varita/mano */
     #rastro { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
     body.modo-mouse #rastro { pointer-events: auto; cursor: crosshair; }
 
-    /* ---------- HUD ---------- */
-    #hud { position: fixed; top: 14px; left: 16px; font: 600 16px/1.6 system-ui;
-           text-shadow: 0 1px 4px #000; pointer-events: none; }
-    #barra-vida { width: 200px; height: 10px; background: #fff2; border-radius: 5px; overflow: hidden; }
-    #vida-relleno { height: 100%; width: 100%; background: linear-gradient(90deg, #ff5f7a, #ffb36b);
-                    transition: width .25s; }
-    #hud.golpe #barra-vida { outline: 2px solid #ff5f7a; }
-
-    /* Leyenda: qué runa vence a qué enemigo */
-    #leyenda { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
-               display: flex; gap: 10px; pointer-events: none; }
-    .ficha { background: #000a; border-radius: 10px; padding: 6px 12px; font-size: 14px;
-             border: 1px solid #fff2; transition: opacity .3s; }
-    .ficha b { font-size: 20px; margin-right: 6px; }
-    .ficha.oculta { opacity: .25; }
-
-    /* Mensajes en el centro (oleada, runa fallida, etc.) */
-    #mensaje { position: fixed; top: 22%; left: 50%; transform: translateX(-50%);
-               font: 700 30px system-ui; text-align: center; text-shadow: 0 2px 10px #000;
-               opacity: 0; transition: opacity .25s; pointer-events: none; white-space: nowrap; }
-    #mensaje small { display: block; font: 400 17px system-ui; color: #cfc8ff; }
-    #mensaje.visible { opacity: 1; }
-
-    /* Vista pequeña de la cámara */
-    #camara { position: fixed; right: 14px; bottom: 14px; width: 190px; aspect-ratio: 4/3;
-              border-radius: 10px; overflow: hidden; border: 2px solid #fff3; display: none; }
-    body.modo-camara #camara, body.modo-color #camara { display: block; }
-    #camara video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-
-    /* Pantallas de inicio y fin */
-    .pantalla { position: fixed; inset: 0; display: grid; place-items: center;
-                background: #0b0a1ae6; text-align: center; }
+    /* ---------- Pantallas ----------
+       Cada pantalla ocupa toda la ventana (con su color de fondo) y dentro
+       tiene un "lienzo" de 1728x1117 px, el tamaño del frame en Figma, que se
+       escala para caber en la ventana. Así las posiciones son las mismas del diseño. */
+    .pantalla { position: fixed; inset: 0; overflow: hidden; z-index: 5; }
     .pantalla[hidden] { display: none; }
-    .pantalla h1 { font-size: 54px; letter-spacing: 6px; margin: 0 0 6px;
-                   background: linear-gradient(90deg, #66e0ff, #ff5fd2); -webkit-background-clip: text;
-                   background-clip: text; color: transparent; }
-    .pantalla p { max-width: 520px; margin: 10px auto; color: #cfc8ff; }
-    .pantalla button { font: 600 17px system-ui; padding: 12px 22px; margin: 6px; border: 0;
-                       border-radius: 10px; cursor: pointer; background: #7b5cff; color: #fff; }
-    .pantalla button.secundario { background: #3a2f6b; }
-    .pantalla button:disabled { opacity: .4; cursor: wait; }
-    .pantalla button.activo { background: #7b5cff; outline: 2px solid #cfc8ff; }
-    .reglas { display: flex; gap: 14px; justify-content: center; margin: 18px 0; }
-    .reglas div { background: #fff1; border-radius: 10px; padding: 10px 14px; min-width: 110px; }
-    .reglas b { display: block; font-size: 28px; }
-    #error { color: #ff8080; }
+    .lienzo { position: absolute; left: 50%; top: 50%; width: 1728px; height: 1117px;
+              transform: translate(-50%, -50%) scale(var(--s)); }
+    .lienzo > * { position: absolute; }
 
-    /* Pantalla de calibración del color */
-    #calibrar .contenido { display: flex; gap: 22px; align-items: center; text-align: left; }
-    #vista-calibrar { position: relative; height: min(66vh, 520px); aspect-ratio: 4/3;
-                      border-radius: 12px; overflow: hidden; border: 2px solid #fff3; cursor: crosshair; }
+    /* Caja de texto centrada (como las cajas de texto de Figma) */
+    .texto { display: flex; align-items: center; justify-content: center; text-align: center;
+             line-height: normal; overflow-wrap: break-word; }
+
+    /* Botones */
+    .boton { font-family: var(--fuente); font-size: 48px; line-height: normal; color: var(--tinta);
+             background: var(--arena); border: 0; border-radius: 42px; padding: 28px 32px;
+             white-space: nowrap; cursor: pointer; display: flex; align-items: center; justify-content: center;
+             transition: transform .12s, filter .12s, box-shadow .12s; }
+    .boton:hover:not(:disabled) { transform: translateY(-3px); filter: brightness(1.05);
+                                  box-shadow: 0 8px 0 rgba(0, 0, 0, .18); }
+    .boton:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+    .boton:disabled { opacity: .55; cursor: wait; }
+    .boton.claro { background: var(--crema); }
+    .boton.claro.activo { background: var(--arena); outline: 5px solid var(--crema); outline-offset: 4px; }
+
+    .estado-texto { font-size: 22px; color: var(--tinta); text-align: center; }
+    .estado-texto.error { color: #8a1c35; }
+
+    /* ---------- 1. Portada ("Inicio" en Figma) ----------
+       Esta pantalla no usa el lienzo fijo: se adapta a la ventana.
+       - El mago se pega abajo a la izquierda y ocupa todo el alto (máximo la mitad del ancho).
+       - Las estrellas se ubican en % de la ventana (mismas proporciones que en Figma).
+       - El título y "comenzar" se anclan a la derecha y se escalan con la ventana. */
+    #portada { background: #686ca2; }
+    .velo { position: absolute; inset: 0; background: rgba(56, 186, 255, .2); pointer-events: none; }
+    /* El mago siempre ocupa todo el alto. En pantallas más cuadradas (4:3, 5:4)
+       se corre un poco a la izquierda para no chocar con el título.
+       0.9257 = ancho/alto de la imagen (1034 x 1117). */
+    #mago { position: absolute; bottom: 0; height: 100%; width: auto; pointer-events: none;
+            left: min(0px, calc(62vw - 100vh * 0.9257)); }
+    .estrella { position: absolute; width: calc(var(--t) * var(--s) * 1px); height: auto; pointer-events: none;
+                transform: translate(-50%, -50%); }
+    #portada-texto { position: absolute; right: 3.2vw; top: 48%; display: flex; flex-direction: column; align-items: flex-end;
+                     gap: 16px; transform: translateY(-50%) scale(var(--s)); transform-origin: right center; }
+    #titulo { margin: 0; font-weight: inherit; font-size: 128px; line-height: normal; color: var(--tinta-titulo);
+              white-space: nowrap; }
+    /* "comenzar" y "configuración": mismo tamaño, forma y color */
+    #portada-botones { display: flex; flex-direction: column; gap: 18px; width: 560px; }
+    #portada-botones .boton { position: static; width: 100%; box-sizing: border-box; font-size: 40px; padding: 26px 32px; }
+    #cerrar-config { font-size: 40px; padding: 26px 32px; }
+    #estado-carga { position: static; min-height: 1.3em; color: var(--tinta-titulo); }
+    /* Aviso mientras el navegador no deja sonar (desaparece con el primer clic) */
+    #aviso-sonido { position: absolute; left: 50%; bottom: calc(28px * var(--s)); transform: translateX(-50%);
+                    font-size: calc(26px * var(--s)); color: var(--crema); opacity: .9; white-space: nowrap;
+                    pointer-events: none; animation: latido 1.6s ease-in-out infinite; }
+    #aviso-sonido[hidden] { display: none; }
+    @keyframes latido { 50% { opacity: .4; } }
+
+    /* ---------- Configuración (desde la portada; mismo fondo que la portada) ---------- */
+    #config { background: #686ca2; }    /* mismo fondo, estrellas y velo que la portada */
+    #config .lienzo { color: var(--tinta-titulo); }
+    #config-titulo { left: 214px; top: 110px; width: 1300px; height: 150px; font-size: 96px; margin: 0; font-weight: inherit; }
+    .config-fila { left: 364px; width: 1000px; height: 70px; display: flex; align-items: center;
+                   justify-content: space-between; font-size: 48px; }
+    .config-fila .valor { font-size: 40px; }
+    #config .deslizador { left: 364px; width: 1000px; }
+    #config-nota { left: 364px; top: 760px; width: 1000px; height: 60px; font-size: 24px; color: var(--tinta);
+                   display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.5; }
+    #cerrar-config { left: 50%; top: 880px; transform: translateX(-50%); }
+    #cerrar-config:hover:not(:disabled) { transform: translateX(-50%) translateY(-3px); }
+
+    /* ---------- Elige cómo jugar (no está en Figma: estilo de las instrucciones) ---------- */
+    #modos { background: rgba(185, 215, 231, .7); }
+    #modos .lienzo { color: var(--tinta); }
+    #modos-titulo { left: 214px; top: 100px; width: 1300px; height: 140px; font-size: 72px; margin: 0; font-weight: inherit; }
+    .tarjeta-modo { top: 280px; width: 440px; height: 560px; box-sizing: border-box; padding: 40px 34px 30px;
+                    border: 0; border-radius: 42px; background: rgba(252, 237, 217, .92); color: var(--tinta);
+                    font-family: var(--fuente); display: flex; flex-direction: column; align-items: center; gap: 22px;
+                    cursor: pointer; text-align: center; box-shadow: 0 10px 0 rgba(41, 35, 94, .18);
+                    transition: transform .15s, box-shadow .15s, background .15s; }
+    .tarjeta-modo:hover:not(:disabled) { transform: translateY(-8px); box-shadow: 0 18px 0 rgba(41, 35, 94, .18); background: #fff4e4; }
+    .tarjeta-modo:disabled { opacity: .55; cursor: wait; }
+    .tarjeta-modo.activo { outline: 8px solid var(--arena); outline-offset: 6px; }
+    .tarjeta-modo svg { width: 180px; height: 180px; flex: none; }
+    .tarjeta-modo .nombre { font-size: 52px; line-height: 1; }
+    .tarjeta-modo .descripcion { font-size: 24px; line-height: 1.45; font-weight: 400; }
+    .tarjeta-modo .actual { font-size: 22px; color: #8a6a2f; min-height: 1em; }
+    #modos-estado { left: 214px; top: 880px; width: 1300px; height: 50px; font-size: 24px; }
+    #modos-volver { left: 50%; top: 950px; transform: translateX(-50%); font-size: 32px; padding: 20px 28px; }
+    #modos-volver:hover:not(:disabled) { transform: translateX(-50%) translateY(-3px); }
+
+    /* ---------- 2. Instrucciones (qué runa vence a cada enemigo) ---------- */
+    #inicio { background: rgba(185, 215, 231, .7); }
+    #inicio .texto { color: var(--tinta); }
+    #instr-titulo { left: 222px; top: 126px; width: 1287px; height: 176px; font-size: 48px; }
+    #instr-runas { left: 396px; top: 329px; width: 938px; height: 172px; }
+    .vence { top: 527px; height: 65px; font-size: 36px; }
+    #img-orco { left: 375px; top: 624px; width: 202px; height: 162px; object-fit: cover; }
+    #img-cangrejo { left: 732px; top: 638px; width: 263px; height: 151px; }
+    #img-demonio { left: 1161px; top: 624px; width: 198px; height: 162px; object-fit: cover; }
+    .fila-botones { left: 0; width: 1728px; display: flex; justify-content: center; align-items: center; gap: 40px; }
+    .fila-botones .boton { position: static; }
+    #instr-botones { top: 975px; }
+    /* Aviso: sobre cada monstruo aparece su runa (como en el juego) */
+    #instr-pista { left: 339px; top: 812px; width: 1050px; height: 130px; box-sizing: border-box;
+                   display: flex; align-items: center; gap: 34px; padding: 0 44px 0 36px;
+                   border-radius: 42px; background: rgba(252, 237, 217, .92); color: var(--tinta);
+                   box-shadow: 0 10px 0 rgba(41, 35, 94, .18); }
+    #instr-pista .ejemplo { position: relative; flex: none; width: 110px; height: 116px; }
+    #instr-pista .ejemplo img { position: absolute; left: 50%; bottom: 4px; height: 62px; transform: translateX(-50%); }
+    #instr-pista .ejemplo svg { position: absolute; left: 50%; top: 0; width: 48px; height: 48px; margin-left: -24px;
+                                animation: flotar 1.4s ease-in-out infinite; }
+    @keyframes flotar { 50% { transform: translateY(-6px); } }
+    #instr-pista p { font-size: 28px; line-height: 1.4; font-weight: 400; text-align: left; }
+    #instr-pista b { font-weight: 700; }
+    #instr-volver { font-size: 32px; padding: 20px 28px; }
+
+    /* ---------- 3. Calibración ("Configurar camara") ---------- */
+    #calibrar { background: rgba(159, 233, 215, .7); }
+    #calibrar .lienzo { color: var(--tinta); }
+    #calibrar-titulo { left: 264px; top: 83px; width: 1287px; height: 176px; font-size: 96px; }
+    #vista-calibrar { left: 78px; top: 333px; width: 830px; height: 566px; background: var(--gris);
+                      border-radius: 57px; overflow: hidden; cursor: crosshair; }
+    /* el video es 4:3; se centra dentro de la caja del diseño */
+    #vista-calibrar .area { position: absolute; top: 0; bottom: 0; left: 37.67px; right: 37.67px; }
     #vista-calibrar video, #vista-calibrar canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
     #vista-calibrar video { object-fit: cover; transform: scaleX(-1); }
-    #panel-calibrar { width: 270px; }
-    #panel-calibrar h1 { font-size: 30px; letter-spacing: 2px; }
-    #panel-calibrar ol { padding-left: 20px; margin: 10px 0; color: #cfc8ff; line-height: 1.5; }
-    #panel-calibrar label { display: block; margin-top: 12px; color: #cfc8ff; }
-    #panel-calibrar input[type=range] { width: 100%; }
-    #muestra-color { display: inline-block; width: 22px; height: 22px; border-radius: 6px;
-                     vertical-align: middle; border: 2px solid #fff6; background: #333; margin-left: 6px; }
-    #panel-calibrar .estado { margin-top: 12px; font-variant-numeric: tabular-nums; }
-    #panel-calibrar button { margin: 12px 6px 0 0; }
+    #pasos { left: 996px; top: 317px; width: 644px; height: 237px; font-size: 26px; display: flex; align-items: center; }
+    #pasos ol { margin: 0; padding-left: 39px; }
+    #pasos li { line-height: 32px; }
+    #etiqueta-tolerancia { left: 988px; top: 586px; width: 644px; height: 53px; font-size: 26px;
+                           display: flex; align-items: center; gap: 14px; }
+    #muestra-color { display: inline-block; width: 30px; height: 30px; border-radius: 8px;
+                     background: transparent; border: 3px solid var(--tinta); }
+    /* Deslizador con la forma del diseño: barra gris, relleno arena y círculo.
+       Clase reutilizable (tolerancia del color y volúmenes de Configuración). */
+    .deslizador { height: 32px; margin: 0; -webkit-appearance: none; appearance: none;
+                  background: transparent; cursor: pointer; }
+    .deslizador::-webkit-slider-runnable-track {
+      height: 19px; border-radius: 34px;
+      background: linear-gradient(90deg, var(--arena) var(--pct, 30%), var(--gris) var(--pct, 30%)); }
+    .deslizador::-moz-range-track {
+      height: 19px; border-radius: 34px;
+      background: linear-gradient(90deg, var(--arena) var(--pct, 30%), var(--gris) var(--pct, 30%)); }
+    .deslizador::-webkit-slider-thumb { -webkit-appearance: none; width: 32px; height: 32px; margin-top: -6.5px;
+      border: 0; border-radius: 50%; background: var(--arena) url('ui/deslizador.svg') center / 100% 100% no-repeat; }
+    .deslizador::-moz-range-thumb { width: 32px; height: 32px; border: 0; border-radius: 50%;
+      background: var(--arena) url('ui/deslizador.svg') center / 100% 100% no-repeat; }
+    #tolerancia-color { left: 986px; top: 633px; width: 644px; }
+    #ver-mascara { left: 1005px; top: 694px; width: 24px; height: 24px; margin: 0; cursor: pointer;
+                   -webkit-appearance: none; appearance: none; background: var(--gris); }
+    #ver-mascara:checked { background: var(--gris) linear-gradient(var(--tinta), var(--tinta)) center / 12px 12px no-repeat; }
+    #etiqueta-mascara { left: 1037px; top: 668px; width: 644px; height: 75px; font-size: 24px;
+                        display: flex; align-items: center; cursor: pointer; }
+    #linea-deteccion { left: 996px; top: 742px; width: 600px; height: 42px; font-size: 26px; display: flex; align-items: center; }
+    #tasa-color { color: #795a5f; margin-left: .4em; }
+    #ayuda-color, #aviso-color { left: 996px; top: 796px; width: 612px; height: 103px; font-size: 20px; line-height: 24px;
+                                 display: flex; align-items: center; }
+    #aviso-color { color: #8a1c35; }
+    #aviso-color[hidden], #ayuda-color[hidden] { display: none; }
+    /* Botones en fila: se acomodan solos aunque cambie el texto ("continuar" / "Listo") */
+    #calibrar-botones { left: 940px; top: 930px; width: 740px; justify-content: flex-start; gap: 28px; }
+    #calibrar-botones .boton { font-size: 40px; }
+
+    /* ---------- 4. HUD durante el juego ("Gameplay") ---------- */
+    #hud { position: fixed; inset: 0; pointer-events: none; display: none; }
+    body.en-partida #hud { display: block; }
+    .grupo { position: absolute; transform: scale(var(--s)); }
+    .grupo > * { position: absolute; }
+    #grupo-marcador { left: 0; top: 0; width: 727px; height: 180px; transform-origin: 0 0; }
+    .banda { border-radius: 75px; }
+    #banda-puntaje { left: -103px; top: 13px; width: 727px; height: 82px;
+                     background: linear-gradient(90deg, #5f52db, rgba(51, 44, 117, 0)); }
+    #banda-oleada { left: -25px; top: 100px; width: 441px; height: 78px;
+                    background: linear-gradient(90deg, #49419e 17.308%, rgba(26, 23, 56, 0)); }
+    .marcador { left: 40px; font-size: 48px; color: var(--crema); white-space: nowrap; line-height: normal; }
+    #texto-puntaje { top: 54px; transform: translateY(-50%); }
+    #texto-oleada { top: 139px; transform: translateY(-50%); }
+    #grupo-esc { right: 0; top: 0; width: 252px; height: 148px; transform-origin: 100% 0; }
+    #boton-esc { right: 15px; top: -30px; width: 237px; height: 178px; border: 0; border-radius: 40px;
+                 background: linear-gradient(180deg, #5f52db, rgba(51, 44, 117, 0) 84.615%);
+                 font-family: var(--fuente); font-size: 48px; color: var(--crema); padding-top: 43px;
+                 display: flex; justify-content: center; align-items: flex-start; line-height: 90px;
+                 cursor: pointer; pointer-events: auto; }
+    #grupo-camara { right: 0; bottom: 0; width: 252px; height: 264px; transform-origin: 100% 100%; }
+    #camara { right: 15px; bottom: 100px; width: 237px; height: 164px; border-radius: 23px;
+              background: var(--gris); overflow: hidden; display: none; }
+    body.modo-camara #camara, body.modo-color #camara { display: block; }
+    #camara video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+    /* La barra de vida ocupa el 87% del ancho de la ventana, como en Figma (1508 de 1728) */
+    #grupo-vida { left: 50%; bottom: calc(22px * var(--s)); width: 87.3vw; height: calc(52px * var(--s));
+                  transform: translateX(calc(-50% - 6px * var(--s))); }
+    #barra-vida { left: 0; top: 0; width: 100%; height: 100%; border-radius: 151px;
+                  background: rgba(217, 217, 217, .3); overflow: hidden; }
+    #vida-relleno { height: 100%; width: 100%; border-radius: 151px;
+                    background: linear-gradient(90deg, #fe576e, #fea760); transition: width .25s; }
+    #hud.golpe #barra-vida { box-shadow: 0 0 0 6px #fe576e; }
+
+    /* Mensajes en el centro (oleada, runa fallida, etc.) */
+    #mensaje { position: fixed; top: 24%; left: 50%; transform: translateX(-50%); z-index: 4;
+               font-size: calc(56px * var(--s)); color: var(--crema); text-align: center;
+               text-shadow: 0 calc(4px * var(--s)) 0 #29235e, 0 0 calc(18px * var(--s)) #000;
+               opacity: 0; transition: opacity .25s; pointer-events: none; white-space: nowrap; }
+    #mensaje small { display: block; margin-top: .3em; font-size: .5em; }
+    #mensaje.visible { opacity: 1; }
+
+    /* ---------- 5. Pausa y fin de partida ---------- */
+    #pausa, #fin { background: rgba(16, 14, 35, .9); }
+    .banda-luz { border-radius: 75px;
+                 background: linear-gradient(90deg, rgba(81, 70, 185, 0) 5%, rgba(51, 44, 117, .8) 50%, rgba(95, 82, 219, 0) 95%); }
+    .titulo-pausa { font-size: 64px; color: var(--crema); }
+    .dato { font-size: 48px; color: var(--crema); }
+    .banda-continuar { left: 501px; top: 435.5px; width: 727px; height: 199px; border: 0; border-radius: 75px;
+                       background: linear-gradient(90deg, rgba(18, 70, 75, 0) 5%, #31a1ac 50%, rgba(18, 70, 75, 0) 95%);
+                       font-family: var(--fuente); font-size: 64px; color: var(--crema); cursor: pointer;
+                       transition: filter .12s, transform .12s; }
+    .banda-continuar:hover { filter: brightness(1.15); transform: scale(1.02); }
+    #pausa .boton { height: 98px; box-sizing: border-box; }
+    #pausa-estado { left: 214px; top: 1040px; width: 1300px; font-size: 22px; color: var(--crema); }
+    #pausa-modo { left: 50%; top: 690px; transform: translateX(-50%); height: 98px; box-sizing: border-box; font-size: 40px; }
+    #pausa-modo:hover:not(:disabled) { transform: translateX(-50%) translateY(-3px); }
+    #pausa-botones { top: 830px; }
+    #pausa-botones .boton { width: 440px; font-size: 36px; }
+
+    /* ---------- Nombre del jugador (mismo estilo que "Elige cómo jugar") ---------- */
+    #nombre { background: rgba(185, 215, 231, .7); }
+    #nombre .lienzo { color: var(--tinta); }
+    #nombre-titulo { left: 214px; top: 190px; width: 1300px; height: 140px; font-size: 72px; margin: 0; font-weight: inherit; }
+    #nombre-ayuda { left: 214px; top: 340px; width: 1300px; height: 60px; font-size: 30px; font-weight: 400; }
+    #campo-nombre { left: 414px; top: 450px; width: 900px; height: 150px; box-sizing: border-box;
+                    font-family: var(--fuente); font-weight: 700; font-size: 64px; color: var(--tinta);
+                    text-align: center; background: rgba(252, 237, 217, .95); border: 6px solid var(--tinta);
+                    border-radius: 42px; padding: 0 40px; outline: none;
+                    box-shadow: 0 10px 0 rgba(41, 35, 94, .18); }
+    #campo-nombre:focus { border-color: #5146b9; box-shadow: 0 10px 0 rgba(41, 35, 94, .18), 0 0 0 8px rgba(235, 201, 155, .9); }
+    #campo-nombre::placeholder { color: rgba(41, 35, 94, .35); }
+    #nombre-botones { top: 690px; }
+    #nombre-botones .boton { font-size: 40px; }
+
+    /* ---------- Fin de la partida + tabla de mejores puntajes ---------- */
+    #fin-titulo-banda { left: 364px; top: 40px; width: 1000px; height: 150px; }
+    #fin-titulo { left: 364px; top: 48px; width: 1000px; height: 134px; }
+    #fin-jugador { left: 90px; top: 235px; width: 760px; height: 70px; font-size: 40px; color: var(--arena); }
+    #fin .dato { font-size: 44px; }
+    #fin-puesto { left: 90px; top: 590px; width: 760px; height: 60px; font-size: 32px; color: var(--arena); }
+    #fin-puesto .num { margin-left: .45em; }
+    #otra-vez { left: 120px; top: 670px; width: 700px; height: 170px; font-size: 52px; }
+    #fin-menu { left: 248px; top: 880px; width: 444px; height: 98px; box-sizing: border-box; font-size: 36px; }
+    #panel-puntajes { left: 900px; top: 225px; width: 740px; height: 800px; box-sizing: border-box;
+                      padding: 30px 40px; border-radius: 42px; background: rgba(51, 44, 117, .55);
+                      color: var(--crema); display: flex; flex-direction: column; }
+    #panel-puntajes h2 { margin: 0 0 18px; font-size: 40px; font-weight: 700; text-align: center; color: var(--crema); }
+    .fila-puntaje, .encabezado-puntajes { display: grid; grid-template-columns: 70px 1fr 130px 170px;
+                      align-items: center; column-gap: 14px; padding: 0 18px; }
+    .encabezado-puntajes { font-size: 20px; font-weight: 400; opacity: .7; height: 40px; }
+    .fila-puntaje > :nth-child(n+3), .encabezado-puntajes > :nth-child(n+3) { text-align: right; }
+    #tabla-puntajes { list-style: none; margin: 0; padding: 0; }
+    .fila-puntaje { height: 58px; font-size: 30px; border-radius: 16px; }
+    .fila-puntaje:nth-child(odd) { background: rgba(255, 255, 255, .05); }
+    .fila-puntaje > :nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fila-puntaje.vacia { opacity: .35; }
+    .fila-puntaje.tuya { background: var(--arena); color: var(--tinta); }
   </style>
+
+  <!-- Escala el lienzo de 1728x1117 (tamaño del diseño) a la ventana -->
+  <script>
+    (function () {
+      function escalar() {
+        document.documentElement.style.setProperty('--s', Math.min(innerWidth / 1728, innerHeight / 1117));
+      }
+      escalar();
+      addEventListener('resize', escalar);
+    })();
+  </script>
 
   <script type="importmap">
     {
@@ -89,97 +336,228 @@
 <body>
   <canvas id="rastro"></canvas>
 
+  <!-- ===== HUD ===== -->
   <div id="hud">
-    <div id="barra-vida"><div id="vida-relleno"></div></div>
-    Puntaje: <span id="puntaje">0</span> · Oleada <span id="oleada">1</span>
-    <div style="font-size:12px;font-weight:400;opacity:.7">Esc: pausa</div>
-  </div>
-
-  <div id="leyenda">
-    <div class="ficha" data-tipo="circulo"><b style="color:#66e0ff">◯</b>Orco</div>
-    <div class="ficha" data-tipo="linea"><b style="color:#ffd23f">─</b>Cangrejo</div>
-    <div class="ficha" data-tipo="triangulo"><b style="color:#ff5fd2">△</b>Demonio</div>
+    <div class="grupo" id="grupo-marcador">
+      <div class="banda" id="banda-puntaje"></div>
+      <div class="banda" id="banda-oleada"></div>
+      <div class="marcador" id="texto-puntaje">Puntaje: <span class="num" id="puntaje">0</span></div>
+      <div class="marcador" id="texto-oleada">Oleada: <span class="num" id="oleada">1</span></div>
+    </div>
+    <div class="grupo" id="grupo-esc">
+      <button id="boton-esc" title="Pausa (Esc)">ESC</button>
+    </div>
+    <div class="grupo" id="grupo-camara">
+      <div id="camara"><video id="video"></video></div>
+    </div>
+    <div class="grupo" id="grupo-vida">
+      <div id="barra-vida"><div id="vida-relleno"></div></div>
+    </div>
   </div>
 
   <div id="mensaje"></div>
-  <div id="camara"><video id="video"></video></div>
 
-  <div class="pantalla" id="inicio">
-    <div>
-      <h1>RUNCASTER</h1>
-      <p>Defiende la torre dibujando runas en el aire.
-         Cada enemigo lleva encima la runa que lo vence.</p>
-      <div class="reglas">
-        <div><b style="color:#66e0ff">◯</b>vence al Orco</div>
-        <div><b style="color:#ffd23f">─</b>vence al Cangrejo</div>
-        <div><b style="color:#ff5fd2">△</b>vence al Demonio</div>
+  <!-- ===== 1. Portada ===== -->
+  <div class="pantalla" id="portada">
+    <img id="mago" src="ui/mago.png" alt="" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:91.58%;top:13.21%;--t:105" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:93.43%;top:89.93%;--t:105" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:75.32%;top:73.19%;--t:99" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:37.36%;top:24.31%;--t:105" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:44.70%;top:56.89%;--t:87" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:60.21%;top:86.08%;--t:87" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:8.71%;top:14.91%;--t:105" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:62.70%;top:7.03%;--t:71" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:76.13%;top:24.75%;--t:71" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:18.89%;top:31.02%;--t:71" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:54.75%;top:23.10%;--t:34" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:86.40%;top:70.28%;--t:34" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:58.85%;top:65.71%;--t:34" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:48.21%;top:74.75%;--t:34" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:79.17%;top:91.50%;--t:34" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:5.67%;top:27.75%;--t:34" />
+    <img class="estrella" src="ui/estrella.svg" alt="" style="left:19.97%;top:14.95%;--t:34" />
+    <div class="velo"></div>
+    <div id="portada-texto">
+      <h1 class="texto" id="titulo">RUNCASTER</h1>
+      <div id="portada-botones">
+        <button class="boton" id="comenzar" disabled>comenzar</button>
+        <button class="boton" id="abrir-config">configuración</button>
       </div>
-      <button id="jugar-camara" disabled>✋ Jugar con la cámara</button>
-      <button id="jugar-color" disabled>🪄 Jugar con varita (color)</button>
-      <button id="jugar-mouse" class="secundario" disabled>🖱️ Jugar con el mouse</button>
-      <p id="estado"></p>
-      <p id="error"></p>
-      <p><small>Teclas de prueba: 1 = ◯ · 2 = ─ · 3 = △</small></p>
+      <p class="estado-texto" id="estado-carga">Cargando…</p>
+    </div>
+    <p id="aviso-sonido" hidden>♪ Haz clic para activar el sonido</p>
+  </div>
+
+  <!-- ===== Configuración (no está en Figma: estilo de la portada) ===== -->
+  <div class="pantalla" id="config" hidden>
+    <!-- aquí main.js copia las estrellas de la portada -->
+    <div class="velo"></div>
+    <div class="lienzo">
+      <h1 class="texto" id="config-titulo">Configuración</h1>
+      <label class="config-fila" style="top:330px" for="vol-ambiente">Ambientación <span class="valor"><span class="num" id="val-ambiente">80</span>%</span></label>
+      <input class="deslizador" id="vol-ambiente" type="range" min="0" max="100" step="1" value="80" style="top:410px" />
+      <label class="config-fila" style="top:540px" for="vol-efectos">Efectos <span class="valor"><span class="num" id="val-efectos">80</span>%</span></label>
+      <input class="deslizador" id="vol-efectos" type="range" min="0" max="100" step="1" value="80" style="top:620px" />
+      <p id="config-nota">Efectos: enemigos, runas, aciertos y botones<br />Tecla M: silenciar todo</p>
+      <button class="boton" id="cerrar-config">volver</button>
     </div>
   </div>
 
-  <div class="pantalla" id="calibrar" hidden>
-    <div class="contenido">
-      <div id="vista-calibrar">
-        <video id="video-calibrar" muted playsinline></video>
-        <canvas id="lienzo-calibrar"></canvas>
+  <!-- ===== Elige cómo jugar (después de "comenzar", y desde la pausa) ===== -->
+  <div class="pantalla" id="modos" hidden>
+    <div class="lienzo">
+      <h1 class="texto" id="modos-titulo">Elige cómo jugar</h1>
+      <button class="tarjeta-modo" data-modo="camara" style="left:159px">
+        <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+            <g fill="#66e0ff"><rect x="10" y="1" width="1" height="1"/><rect x="12" y="2" width="1" height="1"/><rect x="11" y="4" width="2" height="1"/><rect x="3" y="2" width="1" height="1"/><rect x="2" y="4" width="2" height="1"/></g>
+            <g fill="#29235e"><rect x="6" y="1" width="2" height="7"/><rect x="8" y="6" width="2" height="3"/><rect x="10" y="7" width="2" height="3"/><rect x="12" y="8" width="1" height="3"/>
+              <rect x="4" y="8" width="8" height="5"/><rect x="2" y="8" width="2" height="2"/><rect x="3" y="10" width="1" height="2"/><rect x="5" y="13" width="6" height="2"/></g>
+          </svg>
+        <span class="nombre">Cámara</span>
+        <span class="descripcion">Dibuja las runas en el aire con tu dedo índice frente a la cámara.</span>
+        <span class="actual"></span>
+      </button>
+      <button class="tarjeta-modo" data-modo="color" style="left:644px">
+        <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+            <g fill="#ffd23f"><rect x="13" y="1" width="1" height="1"/><rect x="14" y="5" width="1" height="1"/><rect x="9" y="1" width="1" height="1"/></g>
+            <g fill="#7a4b2e"><rect x="2" y="12" width="2" height="2"/><rect x="3" y="11" width="2" height="2"/><rect x="4" y="10" width="2" height="2"/><rect x="5" y="9" width="2" height="2"/><rect x="6" y="8" width="2" height="2"/><rect x="7" y="7" width="2" height="2"/><rect x="8" y="6" width="2" height="2"/></g>
+            <g fill="#ff5fd2"><rect x="10" y="3" width="2" height="3"/><rect x="9" y="4" width="4" height="1"/></g>
+            <g fill="#29235e"><rect x="1" y="13" width="2" height="2"/></g>
+          </svg>
+        <span class="nombre">Varita</span>
+        <span class="descripcion">Usa una varita con punta de color. Antes de jugar, la cámara aprende su color.</span>
+        <span class="actual"></span>
+      </button>
+      <button class="tarjeta-modo" data-modo="mouse" style="left:1129px">
+        <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+            <g fill="#29235e"><rect x="7" y="0" width="2" height="1"/><rect x="8" y="1" width="1" height="2"/>
+              <rect x="6" y="3" width="4" height="1"/><rect x="5" y="4" width="6" height="1"/><rect x="4" y="5" width="8" height="8"/>
+              <rect x="5" y="13" width="6" height="1"/><rect x="6" y="14" width="4" height="1"/></g>
+            <g fill="#fcedd9"><rect x="7.6" y="3" width="0.8" height="5"/><rect x="4" y="7.6" width="8" height="0.8"/></g>
+            <g fill="#ebc99b"><rect x="7" y="4.5" width="2" height="2"/></g>
+          </svg>
+        <span class="nombre">Mouse</span>
+        <span class="descripcion">Dibuja las runas arrastrando el mouse. Ideal si no tienes cámara.</span>
+        <span class="actual"></span>
+      </button>
+      <p class="estado-texto texto" id="modos-estado"></p>
+      <button class="boton claro" id="modos-volver">volver</button>
+    </div>
+  </div>
+
+  <!-- ===== Nombre del jugador (después de elegir el modo) ===== -->
+  <div class="pantalla" id="nombre" hidden>
+    <div class="lienzo">
+      <h1 class="texto" id="nombre-titulo">¿Cómo te llamas?</h1>
+      <p class="texto" id="nombre-ayuda">Tu nombre aparecerá en la tabla de mejores puntajes</p>
+      <input id="campo-nombre" type="text" maxlength="12" autocomplete="off" spellcheck="false"
+             placeholder="tu nombre" aria-label="Tu nombre" />
+      <div class="fila-botones" id="nombre-botones">
+        <button class="boton" id="nombre-listo" disabled>continuar</button>
+        <button class="boton claro" id="nombre-volver">cambiar modo</button>
       </div>
-      <div id="panel-calibrar">
-        <h1>Calibra tu varita</h1>
+    </div>
+  </div>
+
+  <!-- ===== 2. Instrucciones: qué runa vence a cada enemigo ===== -->
+  <div class="pantalla" id="inicio" hidden>
+    <div class="lienzo">
+      <p class="texto" id="instr-titulo">Defiende la torre dibujando runas en el aire. Cada enemigo tiene su runa específica</p>
+      <img id="instr-runas" src="ui/runas.svg" alt="Círculo, línea y triángulo" />
+      <p class="texto vence" style="left:370px;width:213px">Vence al orco</p>
+      <p class="texto vence" style="left:744px;width:243px">Vence al cangrejo</p>
+      <p class="texto vence" style="left:1138px;width:243px">Vence al demonio</p>
+      <img id="img-orco" src="ui/orco.png" alt="Orco" />
+      <img id="img-cangrejo" src="ui/cangrejo.png" alt="Cangrejo" />
+      <img id="img-demonio" src="ui/demonio.png" alt="Demonio" />
+      <div id="instr-pista">
+        <div class="ejemplo" aria-hidden="true">
+          <!-- Mismo ícono que flota sobre el orco en el juego -->
+          <svg viewBox="0 0 128 128">
+            <defs><filter id="brillo-runa" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+            <circle cx="64" cy="64" r="58" fill="rgba(10,8,30,.75)"/>
+            <circle cx="64" cy="64" r="30" fill="none" stroke="#66e0ff" stroke-width="11" filter="url(#brillo-runa)"/>
+          </svg>
+          <img src="ui/orco.png" alt="" />
+        </div>
+        <p>En el juego, <b>sobre cada monstruo verás su runa</b>. Dibújala para atacarlo.</p>
+      </div>
+      <div class="fila-botones" id="instr-botones">
+        <button class="boton" id="instr-jugar">¡A jugar!</button>
+        <button class="boton claro" id="instr-volver">cambiar modo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 3. Calibración del color de la varita ===== -->
+  <div class="pantalla" id="calibrar" hidden>
+    <div class="lienzo">
+      <h1 class="texto" id="calibrar-titulo" style="margin:0;font-weight:inherit">calibra tu varita</h1>
+      <div id="vista-calibrar">
+        <div class="area">
+          <video id="video-calibrar" muted playsinline></video>
+          <canvas id="lienzo-calibrar"></canvas>
+        </div>
+      </div>
+      <div id="pasos">
         <ol>
-          <li>Pon la punta de color frente a la cámara.</li>
-          <li>Haz <b>clic sobre la punta</b> en el video para elegir su color.</li>
+          <li>Pon la punta de color frente a la cámara</li>
+          <li>Haz clic sobre la punta en el video para elegir su color</li>
           <li>Mueve la varita: el punto blanco debe seguirla.</li>
         </ol>
-        <label>Color elegido: <span id="muestra-color"></span></label>
-        <label>Tolerancia: <span id="val-tolerancia-color">12</span>°
-          <input id="tolerancia-color" type="range" min="4" max="40" step="1" value="12" />
-        </label>
-        <label><input id="ver-mascara" type="checkbox" checked /> Resaltar lo que detecta</label>
-        <div class="estado">Detección: <b id="tasa-color">–</b></div>
-        <div id="aviso-color" hidden style="color:#ffcf6b;margin-top:8px">⚠️ Hay otras cosas de ese color en la imagen.
-          Baja la tolerancia o quítalas del fondo.</div>
-        <p style="font-size:13px;color:#a9a2d6">Si se resaltan cosas del fondo, baja la tolerancia
-           o elige un color que no esté en el fondo. Si la punta se pierde, súbela.</p>
-        <button id="color-listo" disabled>¡A jugar!</button>
-        <button id="color-volver" class="secundario">Volver</button>
+      </div>
+      <p id="etiqueta-tolerancia"><span>Tolerancia: <span class="num" id="val-tolerancia-color">12</span>°</span><span id="muestra-color" title="Color elegido"></span></p>
+      <input class="deslizador" id="tolerancia-color" type="range" min="4" max="40" step="1" value="12" />
+      <input id="ver-mascara" type="checkbox" checked />
+      <label id="etiqueta-mascara" for="ver-mascara">resaltar lo que detecta</label>
+      <p id="linea-deteccion">Detección: <span id="tasa-color">no la veo (0%)</span></p>
+      <p id="ayuda-color">Si se resaltan cosas del fondo, baja la tolerancia o elige un color que no esté en el fondo. Si la punta se pierde, súbela.</p>
+      <p id="aviso-color" hidden>Hay otras cosas de ese color en la imagen: baja la tolerancia o quítalas del fondo.</p>
+      <div class="fila-botones" id="calibrar-botones">
+        <button class="boton" id="color-listo" disabled>continuar</button>
+        <button class="boton" id="color-volver">volver</button>
       </div>
     </div>
   </div>
 
+  <!-- ===== 5. Pausa ===== -->
   <div class="pantalla" id="pausa" hidden>
-    <div>
-      <h1>Pausa</h1>
-      <p>Oleada <b id="pausa-oleada">1</b> · Puntaje <b id="pausa-puntaje">0</b></p>
-      <button id="continuar">▶ Continuar</button>
-      <h3 style="margin:22px 0 4px">Cambiar modo de juego</h3>
-      <p style="margin:0 auto 6px;font-size:14px">La partida sigue donde la dejaste.</p>
-      <div>
-        <button data-modo-pausa="camara" class="secundario">✋ Mano</button>
-        <button data-modo-pausa="color" class="secundario">🪄 Varita (color)</button>
-        <button data-modo-pausa="mouse" class="secundario">🖱️ Mouse</button>
+    <div class="lienzo">
+      <div class="banda-luz" style="left:501px;top:95px;width:727px;height:158px"></div>
+      <p class="texto titulo-pausa" style="left:721px;top:107px;width:287px;height:134px">Pausa</p>
+      <div class="banda-luz" style="left:338px;top:286px;width:504px;height:106px"></div>
+      <p class="texto dato" style="left:230px;top:245px;width:720px;height:188px">Puntaje: <span class="num" id="pausa-puntaje" style="margin-left:.4em">0</span></p>
+      <div class="banda-luz" style="left:888px;top:286px;width:503px;height:106px"></div>
+      <p class="texto dato" style="left:779px;top:245px;width:720px;height:188px">Oleada: <span class="num" id="pausa-oleada" style="margin-left:.4em">1</span></p>
+      <button class="banda-continuar" id="continuar">Continuar</button>
+      <button class="boton claro" id="pausa-modo">cambiar modo de juego</button>
+      <div class="fila-botones" id="pausa-botones">
+        <button class="boton claro" id="pausa-config">configuración</button>
+        <button class="boton claro" id="pausa-menu">volver al menú</button>
       </div>
-      <div style="margin-top:14px">
-        <button id="pausa-calibrar" class="secundario">🎨 Calibrar color</button>
-        <button id="pausa-menu" class="secundario">⌂ Volver al menú</button>
-      </div>
-      <p id="pausa-estado"></p>
-      <p><small>Esc para continuar</small></p>
+      <p class="texto" id="pausa-estado"></p>
     </div>
   </div>
 
+  <!-- ===== Fin de la partida + tabla de los 10 mejores (no está en Figma: estilo de la pausa) ===== -->
   <div class="pantalla" id="fin" hidden>
-    <div>
-      <h1>Fin de la partida</h1>
-      <p>La torre resistió hasta la oleada <b id="fin-oleada">1</b>.</p>
-      <p style="font-size:24px">Puntaje: <b id="fin-puntaje">0</b></p>
-      <button id="otra-vez">Jugar de nuevo</button>
-      <button id="fin-menu" class="secundario">Volver al menú</button>
+    <div class="lienzo">
+      <div class="banda-luz" id="fin-titulo-banda"></div>
+      <p class="texto titulo-pausa" id="fin-titulo">Fin de la partida</p>
+      <p class="texto" id="fin-jugador"></p>
+      <div class="banda-luz" style="left:170px;top:330px;width:600px;height:106px"></div>
+      <p class="texto dato" style="left:90px;top:330px;width:760px;height:106px">Puntaje: <span class="num" id="fin-puntaje" style="margin-left:.4em">0</span></p>
+      <div class="banda-luz" style="left:170px;top:460px;width:600px;height:106px"></div>
+      <p class="texto dato" style="left:90px;top:460px;width:760px;height:106px">Oleada: <span class="num" id="fin-oleada" style="margin-left:.4em">1</span></p>
+      <p class="texto" id="fin-puesto"></p>
+      <button class="banda-continuar" id="otra-vez">Jugar de nuevo</button>
+      <button class="boton claro" id="fin-menu">volver al menú</button>
+      <div id="panel-puntajes">
+        <h2>Mejores puntajes</h2>
+        <div class="encabezado-puntajes"><span>#</span><span>nombre</span><span>oleada</span><span>puntos</span></div>
+        <ol id="tabla-puntajes"></ol>
+      </div>
     </div>
   </div>
 
