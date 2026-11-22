@@ -23,6 +23,7 @@ import { prepararAudio, activar as activarSonido, reproducir, empezarDibujo, ter
          musicaBaja, alternarSilencio, sonarBoton, fijarVolumen, leerVolumen } from './sonido.js';
 import { encenderCamara, crearTracker, leerColor, fijarColor, ANCHO_COLOR, ALTO_COLOR } from './tracking.js';
 import { reconocerRuna, SegmentadorTrazos, AJUSTES } from './runas.js';
+import { guardarPuntaje, leerNombre, recordarNombre, limpiarNombre, MAXIMO } from './puntajes.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -306,9 +307,42 @@ function sumarPuntos(n) {
 
 function terminarPartida() {
   juego.estado = 'fin';
+  terminarDibujo();
   $('fin-oleada').textContent = juego.oleada;
   $('fin-puntaje').textContent = juego.puntaje;
+  $('fin-jugador').textContent = nombreJugador;
+  $('mensaje').classList.remove('visible');   // que el aviso de oleada no quede encima
+  const { lista, puesto } = guardarPuntaje({
+    nombre: nombreJugador, puntaje: juego.puntaje, oleada: juego.oleada, modo,
+  });
+  $('fin-puesto').innerHTML = conNumeros(
+    puesto === 1 ? '¡Nuevo récord!'
+      : puesto ? `Quedaste en el puesto ${puesto}`
+      : `Esta vez no entraste al top ${MAXIMO}`);
+  mostrarTabla(lista, puesto);
   $('fin').hidden = false;
+}
+
+// Los números van en <span class="num"> para alinearlos con las letras
+const conNumeros = (t) => String(t).replace(/\d+/g, '<span class="num">$&</span>');
+
+// Dibuja la tabla de los 10 mejores; resalta la fila de esta partida
+function mostrarTabla(lista, puesto) {
+  const tabla = $('tabla-puntajes');
+  tabla.replaceChildren();
+  for (let i = 0; i < MAXIMO; i++) {
+    const p = lista[i];
+    const fila = document.createElement('li');
+    fila.className = 'fila-puntaje' + (p ? '' : ' vacia') + (i + 1 === puesto ? ' tuya' : '');
+    const celdas = p ? [i + 1, p.nombre, p.oleada ?? '', p.puntaje] : [i + 1, '···', '', ''];
+    celdas.forEach((valor, c) => {
+      const span = document.createElement('span');
+      if (c === 1) span.textContent = valor;          // el nombre va como texto (no como HTML)
+      else span.innerHTML = conNumeros(valor);
+      fila.append(span);
+    });
+    tabla.append(fila);
+  }
 }
 
 // Quita enemigos, hechizos y efectos, y deja vida y puntaje como al inicio
@@ -336,8 +370,6 @@ function reiniciarPartida() {
 let temporizadorMensaje;
 function mostrarMensaje(titulo, detalle = '', duracion = 1500) {
   const el = $('mensaje');
-  // Los números van en <span class="num"> para alinearlos con las letras
-  const conNumeros = (t) => String(t).replace(/\d+/g, '<span class="num">$&</span>');
   el.innerHTML = `${conNumeros(titulo)}${detalle ? `<small>${conNumeros(detalle)}</small>` : ''}`;
   el.classList.add('visible');
   clearTimeout(temporizadorMensaje);
@@ -442,7 +474,7 @@ function abrirModos(origen) {
     t.classList.toggle('activo', actual);
     t.querySelector('.actual').textContent = actual ? 'modo actual' : '';
   });
-  for (const id of ['portada', 'pausa', 'inicio', 'calibrar']) $(id).hidden = true;
+  for (const id of ['portada', 'pausa', 'inicio', 'calibrar', 'nombre']) $(id).hidden = true;
   $('modos').hidden = false;
 }
 
@@ -483,9 +515,48 @@ function terminarEleccion(nuevo) {
     $('pausa').hidden = false;
   } else {
     modoPendiente = nuevo;
-    $('inicio').hidden = false;         // instrucciones: qué runa vence a cada enemigo
+    abrirNombre();                      // luego el nombre, y después las instrucciones
   }
 }
+
+// =============================================================
+// NOMBRE DEL JUGADOR (para la tabla de mejores puntajes)
+// Va después de elegir el modo y antes de las instrucciones.
+// Se recuerda el último nombre para no tener que escribirlo cada vez.
+// =============================================================
+let nombreJugador = leerNombre() || 'Mago';
+const campoNombre = $('campo-nombre');
+
+function abrirNombre() {
+  campoNombre.value = leerNombre();
+  revisarNombre();
+  $('nombre').hidden = false;
+  campoNombre.focus();
+  campoNombre.select();
+}
+
+function revisarNombre() {
+  $('nombre-listo').disabled = !limpiarNombre(campoNombre.value);
+}
+
+function confirmarNombre() {
+  const nombre = limpiarNombre(campoNombre.value);
+  if (!nombre) return;
+  nombreJugador = nombre;
+  recordarNombre(nombre);
+  $('nombre').hidden = true;
+  $('inicio').hidden = false;           // instrucciones: qué runa vence a cada enemigo
+}
+
+campoNombre.addEventListener('input', revisarNombre);
+campoNombre.addEventListener('keydown', (e) => {
+  // Mientras se escribe, las teclas no llegan al juego (M, D, 1, 2, 3...)
+  e.stopPropagation();
+  if (e.key === 'Enter') { e.preventDefault(); if (!$('nombre-listo').disabled) $('nombre-listo').click(); }
+  if (e.key === 'Escape') abrirModos('portada');
+});
+$('nombre-listo').addEventListener('click', confirmarNombre);
+$('nombre-volver').addEventListener('click', () => abrirModos('portada'));
 
 document.querySelectorAll('.tarjeta-modo').forEach((t) =>
   t.addEventListener('click', () => elegirModo(t.dataset.modo)));
@@ -563,7 +634,7 @@ function volverAlMenu() {
   calibrando = false;
   limpiarPartida();
   juego.estado = 'inicio';
-  for (const id of ['pausa', 'fin', 'calibrar', 'config', 'inicio', 'modos']) $(id).hidden = true;
+  for (const id of ['pausa', 'fin', 'calibrar', 'config', 'inicio', 'modos', 'nombre']) $(id).hidden = true;
   $('mensaje').classList.remove('visible');
   segmentador.reiniciar();
   trazoMouse = null;
@@ -587,6 +658,7 @@ addEventListener('keydown', (e) => {
   if (!$('config').hidden) cerrarConfig();
   else if (!$('calibrar').hidden) salirDeCalibracion();
   else if (!$('modos').hidden) volverDeModos();
+  else if (!$('nombre').hidden) abrirModos('portada');
   else if (!$('inicio').hidden) abrirModos('portada');
   else if (pausado) continuar();
   else pausar();
@@ -932,4 +1004,6 @@ bucle();
 // Desde la consola del navegador (F12) se puede probar, por ejemplo:
 //   runcaster.iniciarOleada(3)   -> saltar a la oleada 3
 //   runcaster.juego.vida = 1000  -> torre casi inmortal
-window.runcaster = { juego, iniciarOleada, lanzarHechizo };
+//   runcaster.terminarPartida()  -> ver la pantalla final y la tabla
+//   localStorage.removeItem('runcaster-puntajes')  -> borrar la tabla
+window.runcaster = { juego, iniciarOleada, lanzarHechizo, terminarPartida };

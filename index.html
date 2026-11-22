@@ -150,7 +150,19 @@
     #img-demonio { left: 1161px; top: 624px; width: 198px; height: 162px; object-fit: cover; }
     .fila-botones { left: 0; width: 1728px; display: flex; justify-content: center; align-items: center; gap: 40px; }
     .fila-botones .boton { position: static; }
-    #instr-botones { top: 841px; }
+    #instr-botones { top: 975px; }
+    /* Aviso: sobre cada monstruo aparece su runa (como en el juego) */
+    #instr-pista { left: 339px; top: 812px; width: 1050px; height: 130px; box-sizing: border-box;
+                   display: flex; align-items: center; gap: 34px; padding: 0 44px 0 36px;
+                   border-radius: 42px; background: rgba(252, 237, 217, .92); color: var(--tinta);
+                   box-shadow: 0 10px 0 rgba(41, 35, 94, .18); }
+    #instr-pista .ejemplo { position: relative; flex: none; width: 110px; height: 116px; }
+    #instr-pista .ejemplo img { position: absolute; left: 50%; bottom: 4px; height: 62px; transform: translateX(-50%); }
+    #instr-pista .ejemplo svg { position: absolute; left: 50%; top: 0; width: 48px; height: 48px; margin-left: -24px;
+                                animation: flotar 1.4s ease-in-out infinite; }
+    @keyframes flotar { 50% { transform: translateY(-6px); } }
+    #instr-pista p { font-size: 28px; line-height: 1.4; font-weight: 400; text-align: left; }
+    #instr-pista b { font-weight: 700; }
     #instr-volver { font-size: 32px; padding: 20px 28px; }
 
     /* ---------- 3. Calibración ("Configurar camara") ---------- */
@@ -259,6 +271,45 @@
     #pausa-modo:hover:not(:disabled) { transform: translateX(-50%) translateY(-3px); }
     #pausa-botones { top: 830px; }
     #pausa-botones .boton { width: 440px; font-size: 36px; }
+
+    /* ---------- Nombre del jugador (mismo estilo que "Elige cómo jugar") ---------- */
+    #nombre { background: rgba(185, 215, 231, .7); }
+    #nombre .lienzo { color: var(--tinta); }
+    #nombre-titulo { left: 214px; top: 190px; width: 1300px; height: 140px; font-size: 72px; margin: 0; font-weight: inherit; }
+    #nombre-ayuda { left: 214px; top: 340px; width: 1300px; height: 60px; font-size: 30px; font-weight: 400; }
+    #campo-nombre { left: 414px; top: 450px; width: 900px; height: 150px; box-sizing: border-box;
+                    font-family: var(--fuente); font-weight: 700; font-size: 64px; color: var(--tinta);
+                    text-align: center; background: rgba(252, 237, 217, .95); border: 6px solid var(--tinta);
+                    border-radius: 42px; padding: 0 40px; outline: none;
+                    box-shadow: 0 10px 0 rgba(41, 35, 94, .18); }
+    #campo-nombre:focus { border-color: #5146b9; box-shadow: 0 10px 0 rgba(41, 35, 94, .18), 0 0 0 8px rgba(235, 201, 155, .9); }
+    #campo-nombre::placeholder { color: rgba(41, 35, 94, .35); }
+    #nombre-botones { top: 690px; }
+    #nombre-botones .boton { font-size: 40px; }
+
+    /* ---------- Fin de la partida + tabla de mejores puntajes ---------- */
+    #fin-titulo-banda { left: 364px; top: 40px; width: 1000px; height: 150px; }
+    #fin-titulo { left: 364px; top: 48px; width: 1000px; height: 134px; }
+    #fin-jugador { left: 90px; top: 235px; width: 760px; height: 70px; font-size: 40px; color: var(--arena); }
+    #fin .dato { font-size: 44px; }
+    #fin-puesto { left: 90px; top: 590px; width: 760px; height: 60px; font-size: 32px; color: var(--arena); }
+    #fin-puesto .num { margin-left: .45em; }
+    #otra-vez { left: 120px; top: 670px; width: 700px; height: 170px; font-size: 52px; }
+    #fin-menu { left: 248px; top: 880px; width: 444px; height: 98px; box-sizing: border-box; font-size: 36px; }
+    #panel-puntajes { left: 900px; top: 225px; width: 740px; height: 800px; box-sizing: border-box;
+                      padding: 30px 40px; border-radius: 42px; background: rgba(51, 44, 117, .55);
+                      color: var(--crema); display: flex; flex-direction: column; }
+    #panel-puntajes h2 { margin: 0 0 18px; font-size: 40px; font-weight: 700; text-align: center; color: var(--crema); }
+    .fila-puntaje, .encabezado-puntajes { display: grid; grid-template-columns: 70px 1fr 130px 170px;
+                      align-items: center; column-gap: 14px; padding: 0 18px; }
+    .encabezado-puntajes { font-size: 20px; font-weight: 400; opacity: .7; height: 40px; }
+    .fila-puntaje > :nth-child(n+3), .encabezado-puntajes > :nth-child(n+3) { text-align: right; }
+    #tabla-puntajes { list-style: none; margin: 0; padding: 0; }
+    .fila-puntaje { height: 58px; font-size: 30px; border-radius: 16px; }
+    .fila-puntaje:nth-child(odd) { background: rgba(255, 255, 255, .05); }
+    .fila-puntaje > :nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fila-puntaje.vacia { opacity: .35; }
+    .fila-puntaje.tuya { background: var(--arena); color: var(--tinta); }
   </style>
 
   <!-- Escala el lienzo de 1728x1117 (tamaño del diseño) a la ventana -->
@@ -395,6 +446,20 @@
     </div>
   </div>
 
+  <!-- ===== Nombre del jugador (después de elegir el modo) ===== -->
+  <div class="pantalla" id="nombre" hidden>
+    <div class="lienzo">
+      <h1 class="texto" id="nombre-titulo">¿Cómo te llamas?</h1>
+      <p class="texto" id="nombre-ayuda">Tu nombre aparecerá en la tabla de mejores puntajes</p>
+      <input id="campo-nombre" type="text" maxlength="12" autocomplete="off" spellcheck="false"
+             placeholder="tu nombre" aria-label="Tu nombre" />
+      <div class="fila-botones" id="nombre-botones">
+        <button class="boton" id="nombre-listo" disabled>continuar</button>
+        <button class="boton claro" id="nombre-volver">cambiar modo</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== 2. Instrucciones: qué runa vence a cada enemigo ===== -->
   <div class="pantalla" id="inicio" hidden>
     <div class="lienzo">
@@ -406,6 +471,18 @@
       <img id="img-orco" src="ui/orco.png" alt="Orco" />
       <img id="img-cangrejo" src="ui/cangrejo.png" alt="Cangrejo" />
       <img id="img-demonio" src="ui/demonio.png" alt="Demonio" />
+      <div id="instr-pista">
+        <div class="ejemplo" aria-hidden="true">
+          <!-- Mismo ícono que flota sobre el orco en el juego -->
+          <svg viewBox="0 0 128 128">
+            <defs><filter id="brillo-runa" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+            <circle cx="64" cy="64" r="58" fill="rgba(10,8,30,.75)"/>
+            <circle cx="64" cy="64" r="30" fill="none" stroke="#66e0ff" stroke-width="11" filter="url(#brillo-runa)"/>
+          </svg>
+          <img src="ui/orco.png" alt="" />
+        </div>
+        <p>En el juego, <b>sobre cada monstruo verás su runa</b>. Dibújala para atacarlo.</p>
+      </div>
       <div class="fila-botones" id="instr-botones">
         <button class="boton" id="instr-jugar">¡A jugar!</button>
         <button class="boton claro" id="instr-volver">cambiar modo</button>
@@ -463,17 +540,24 @@
     </div>
   </div>
 
-  <!-- ===== Fin de la partida (no está en Figma: mismo estilo que la pausa) ===== -->
+  <!-- ===== Fin de la partida + tabla de los 10 mejores (no está en Figma: estilo de la pausa) ===== -->
   <div class="pantalla" id="fin" hidden>
     <div class="lienzo">
-      <div class="banda-luz" style="left:364px;top:95px;width:1000px;height:158px"></div>
-      <p class="texto titulo-pausa" style="left:364px;top:107px;width:1000px;height:134px">Fin de la partida</p>
-      <div class="banda-luz" style="left:338px;top:286px;width:504px;height:106px"></div>
-      <p class="texto dato" style="left:230px;top:245px;width:720px;height:188px">Puntaje: <span class="num" id="fin-puntaje" style="margin-left:.4em">0</span></p>
-      <div class="banda-luz" style="left:888px;top:286px;width:503px;height:106px"></div>
-      <p class="texto dato" style="left:779px;top:245px;width:720px;height:188px">Oleada: <span class="num" id="fin-oleada" style="margin-left:.4em">1</span></p>
-      <button class="banda-continuar" id="otra-vez" style="font-size:52px">Jugar de nuevo</button>
-      <button class="boton claro" id="fin-menu" style="left:642px;top:781px;width:444px;height:98px;box-sizing:border-box;font-size:36px">volver al menú</button>
+      <div class="banda-luz" id="fin-titulo-banda"></div>
+      <p class="texto titulo-pausa" id="fin-titulo">Fin de la partida</p>
+      <p class="texto" id="fin-jugador"></p>
+      <div class="banda-luz" style="left:170px;top:330px;width:600px;height:106px"></div>
+      <p class="texto dato" style="left:90px;top:330px;width:760px;height:106px">Puntaje: <span class="num" id="fin-puntaje" style="margin-left:.4em">0</span></p>
+      <div class="banda-luz" style="left:170px;top:460px;width:600px;height:106px"></div>
+      <p class="texto dato" style="left:90px;top:460px;width:760px;height:106px">Oleada: <span class="num" id="fin-oleada" style="margin-left:.4em">1</span></p>
+      <p class="texto" id="fin-puesto"></p>
+      <button class="banda-continuar" id="otra-vez">Jugar de nuevo</button>
+      <button class="boton claro" id="fin-menu">volver al menú</button>
+      <div id="panel-puntajes">
+        <h2>Mejores puntajes</h2>
+        <div class="encabezado-puntajes"><span>#</span><span>nombre</span><span>oleada</span><span>puntos</span></div>
+        <ol id="tabla-puntajes"></ol>
+      </div>
     </div>
   </div>
 
