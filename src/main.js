@@ -19,19 +19,90 @@ import * as THREE from 'three';
 import { crearEscena, Efectos, POSICION_TORRE } from './escena.js';
 import { TIPOS, crearEnemigo, animarEnemigo, centroEnemigo, mirarHacia, reproducirUnaVez } from './enemigos.js';
 import { cargarModelos } from './modelos.js';
+import { prepararAudio, activar as activarSonido, reproducir, empezarDibujo, terminarDibujo,
+         musicaBaja, alternarSilencio, sonarBoton, fijarVolumen, leerVolumen } from './sonido.js';
 import { encenderCamara, crearTracker, leerColor, fijarColor, ANCHO_COLOR, ALTO_COLOR } from './tracking.js';
 import { reconocerRuna, SegmentadorTrazos, AJUSTES } from './runas.js';
 
 const $ = (id) => document.getElementById(id);
 
+// ---------- Sonido ----------
+// Se prepara apenas abre la página, para que la ambientación suene ya en
+// la portada. Si el navegador aún no deja sonar, se muestra un aviso.
+prepararAudio((bloqueado) => { $('aviso-sonido').hidden = !bloqueado; });
+// Todos los botones hacen su sonido al pulsarlos
+document.addEventListener('click', (e) => {
+  const boton = e.target.closest('button');
+  if (boton && !boton.disabled) sonarBoton();
+});
+
+// ---------- Configuración (volúmenes) ----------
+// Se abre desde la portada. Los cambios se escuchan en vivo y se guardan.
+function prepararDeslizadorVolumen(tipo, idDeslizador, idValor) {
+  const el = $(idDeslizador);
+  el.value = Math.round(leerVolumen(tipo) * 100);
+  $(idValor).textContent = el.value;
+  pintarDeslizador(el);
+  el.addEventListener('input', () => {
+    fijarVolumen(tipo, el.value / 100);
+    $(idValor).textContent = el.value;
+    pintarDeslizador(el);
+  });
+}
+prepararDeslizadorVolumen('ambiente', 'vol-ambiente', 'val-ambiente');
+prepararDeslizadorVolumen('efectos', 'vol-efectos', 'val-efectos');
+// Al soltar el de efectos, suena un acierto para escuchar cómo queda
+$('vol-efectos').addEventListener('change', () => reproducir('acierto'));
+// Estrellas de la configuración: mismo dibujo que en la portada, repartidas
+// parejo (7 a cada lado, 3 arriba y 6 abajo) y lejos de los controles.
+// Posición (esquina superior izquierda) en el lienzo de Figma (1728x1117) y tamaño.
+const ESTRELLAS_CONFIG = [
+  // izquierda
+  [60, 80, 87], [210, 230, 34], [90, 400, 105], [240, 560, 34], [50, 700, 71], [180, 860, 99], [70, 1010, 34],
+  // derecha
+  [1580, 90, 105], [1470, 250, 34], [1610, 420, 71], [1480, 580, 34], [1620, 730, 87], [1500, 880, 34], [1590, 990, 99],
+  // arriba
+  [520, 30, 34], [880, 30, 71], [1250, 25, 34],
+  // abajo
+  [380, 960, 71], [560, 880, 34], [640, 1040, 34], [1150, 890, 34], [1000, 1000, 87], [1290, 970, 34],
+];
+const plantillaEstrella = document.querySelector('#portada .estrella');
+for (const [x, y, t] of ESTRELLAS_CONFIG) {
+  const e = plantillaEstrella.cloneNode();
+  e.style.left = ((x + t / 2) / 1728 * 100) + '%';
+  e.style.top = ((y + t / 2) / 1117 * 100) + '%';
+  e.style.setProperty('--t', t);
+  $('config').prepend(e);
+}
+
+// Se abre desde la portada o desde la pausa, y "volver" regresa a donde estaba
+let origenConfig = 'portada';
+function abrirConfig(origen) {
+  origenConfig = origen;
+  $(origen).hidden = true;
+  $('config').hidden = false;
+}
+function cerrarConfig() {
+  $('config').hidden = true;
+  $(origenConfig).hidden = false;
+}
+$('abrir-config').addEventListener('click', () => abrirConfig('portada'));
+$('cerrar-config').addEventListener('click', cerrarConfig);
+
 // ---------- Modelos 3D ----------
 // Se cargan antes de todo; mientras tanto, los botones de inicio esperan.
-$('estado').textContent = 'Cargando modelos…';
+// La portada muestra el progreso y el botón "comenzar" se activa al terminar.
+$('estado-carga').textContent = 'Cargando…';
 const modelos = await cargarModelos((n, total) => {
-  $('estado').textContent = `Cargando modelos… ${n}/${total}`;
+  $('estado-carga').textContent = `Cargando… ${n}/${total}`;
 });
-$('estado').textContent = '';
-document.querySelectorAll('#inicio button').forEach((b) => (b.disabled = false));
+$('estado-carga').textContent = '';
+$('comenzar').disabled = false;
+// Portada -> elegir modo de juego
+$('comenzar').addEventListener('click', () => {
+  activarSonido();                      // el navegador solo deja sonar tras un clic
+  abrirModos('portada');
+});
 
 // ---------- Mundo ----------
 const { scene, camera, renderer, cristal, radioTorre, sacudir, actualizarCamara } = crearEscena(document.body, modelos);
@@ -101,6 +172,7 @@ function aparecerEnemigo() {
   const enemigo = crearEnemigo(tipo, pos, juego.multiplicadorVelocidad, modelos);
   scene.add(enemigo);
   enemigos.push(enemigo);
+  reproducir(TIPOS[tipo].modelo, { variacion: 0.06 });   // 'orco', 'cangrejo' o 'demonio'
 }
 
 function eliminarEnemigo(enemigo) {
@@ -182,6 +254,7 @@ function actualizarHechizos(delta) {
       const e = h.objetivo;
       efectos.explosion(centroEnemigo(e, new THREE.Vector3()), TIPOS[e.userData.tipo].color, 22, 6);
       sumarPuntos(TIPOS[e.userData.tipo].puntos);
+      reproducir('acierto', { variacion: 0.04 });
       despedirEnemigo(e, 'Death');
       quitarHechizo(i);
       continue;
@@ -263,7 +336,9 @@ function reiniciarPartida() {
 let temporizadorMensaje;
 function mostrarMensaje(titulo, detalle = '', duracion = 1500) {
   const el = $('mensaje');
-  el.innerHTML = `${titulo}${detalle ? `<small>${detalle}</small>` : ''}`;
+  // Los números van en <span class="num"> para alinearlos con las letras
+  const conNumeros = (t) => String(t).replace(/\d+/g, '<span class="num">$&</span>');
+  el.innerHTML = `${conNumeros(titulo)}${detalle ? `<small>${conNumeros(detalle)}</small>` : ''}`;
   el.classList.add('visible');
   clearTimeout(temporizadorMensaje);
   temporizadorMensaje = setTimeout(() => el.classList.remove('visible'), duracion);
@@ -281,10 +356,12 @@ const lienzo = $('rastro');
 const ctx = lienzo.getContext('2d');
 
 const segmentador = new SegmentadorTrazos({
-  alTerminar: (puntos) => procesarTrazo(puntos),
+  alEmpezar: () => { if (enPartida()) empezarDibujo(); },
+  alTerminar: (puntos) => { terminarDibujo(); procesarTrazo(puntos); },
 });
 
 function procesarTrazo(puntos) {
+  if (!enPartida()) return;            // fuera de la partida no se reconocen runas
   const r = reconocerRuna(puntos);
   // Movimientos diminutos se ignoran en silencio (acomodar la mano, temblor)
   if (r.motivo === 'trazo muy pequeño' || r.motivo === 'trazo muy corto') return;
@@ -305,13 +382,15 @@ addEventListener('keydown', (e) => { if (TECLAS[e.key]) lanzarHechizo(TECLAS[e.k
 // --- Mouse ---
 const puntoMouse = (e) => ({ x: e.clientX / innerWidth, y: e.clientY / innerHeight });
 lienzo.addEventListener('pointerdown', (e) => {
-  if (modo !== 'mouse' || pausado) return;
+  if (modo !== 'mouse' || !enPartida()) return;
   lienzo.setPointerCapture(e.pointerId);
   trazoMouse = [puntoMouse(e)];
+  empezarDibujo();
 });
 lienzo.addEventListener('pointermove', (e) => { if (trazoMouse) trazoMouse.push(puntoMouse(e)); });
 lienzo.addEventListener('pointerup', () => {
   if (!trazoMouse) return;
+  terminarDibujo();
   const puntos = trazoMouse;
   trazoMouse = null;
   procesarTrazo(puntos);
@@ -325,7 +404,7 @@ const DELEGADO = new URLSearchParams(location.search).has('cpu') ? 'CPU' : 'GPU'
 let stream = null;
 
 // Enciende la cámara y crea el tracker una sola vez; luego solo cambia de modo
-async function prepararCamara(modoTracker, elEstado = $('estado')) {
+async function prepararCamara(modoTracker, elEstado = $('modos-estado')) {
   if (!stream) {
     elEstado.textContent = 'Pidiendo permiso para la cámara…';
     stream = await encenderCamara($('video'));
@@ -344,27 +423,78 @@ function mensajeErrorCamara(e) {
     : 'No se pudo usar la cámara: ' + e.message;
 }
 
-function errorCamara(e) {
-  console.error(e);
-  $('estado').textContent = '';
-  $('error').textContent = mensajeErrorCamara(e);
+// =============================================================
+// ELEGIR MODO DE JUEGO
+//   Desde la portada: elegir modo -> (varita: calibración) -> instrucciones -> juego
+//   Desde la pausa:   elegir modo -> (varita: calibración) -> vuelve a la pausa
+//                     con el modo nuevo, sin perder la partida
+// =============================================================
+let origenModos = 'portada';   // 'portada' o 'pausa'
+let modoPendiente = null;      // modo elegido, antes de empezar la partida
+
+function abrirModos(origen) {
+  origenModos = origen;
+  $('modos-estado').textContent = '';
+  $('modos-estado').classList.remove('error');
+  // Desde la pausa se marca el modo con el que se está jugando
+  document.querySelectorAll('.tarjeta-modo').forEach((t) => {
+    const actual = origen === 'pausa' && t.dataset.modo === modo;
+    t.classList.toggle('activo', actual);
+    t.querySelector('.actual').textContent = actual ? 'modo actual' : '';
+  });
+  for (const id of ['portada', 'pausa', 'inicio', 'calibrar']) $(id).hidden = true;
+  $('modos').hidden = false;
 }
 
-$('jugar-mouse').addEventListener('click', () => empezar('mouse'));
-$('jugar-camara').addEventListener('click', async () => {
-  $('error').textContent = '';
+function volverDeModos() {
+  $('modos').hidden = true;
+  $(origenModos).hidden = false;
+}
+
+function bloquearModos(bloquear) {
+  document.querySelectorAll('#modos button').forEach((b) => (b.disabled = bloquear));
+}
+
+async function elegirModo(nuevo) {
+  $('modos-estado').classList.remove('error');
+  $('modos-estado').textContent = '';
+  bloquearModos(true);
   try {
-    await prepararCamara('mano');
-    empezar('camara');
-  } catch (e) { errorCamara(e); }
-});
-$('jugar-color').addEventListener('click', async () => {
-  $('error').textContent = '';
-  try {
-    await prepararCamara('color');
-    abrirCalibracion('inicio');
-  } catch (e) { errorCamara(e); }
-});
+    if (nuevo === 'camara') await prepararCamara('mano');
+    if (nuevo === 'color') await prepararCamara('color');
+  } catch (e) {
+    console.error(e);
+    $('modos-estado').classList.add('error');
+    $('modos-estado').textContent = mensajeErrorCamara(e);
+    if (tracker && modo === 'camara') tracker.usarModo('mano').catch(() => {});
+    bloquearModos(false);
+    return;
+  }
+  bloquearModos(false);
+  $('modos').hidden = true;
+  if (nuevo === 'color') abrirCalibracion();   // la varita pasa primero por la calibración
+  else terminarEleccion(nuevo);
+}
+
+// Después de elegir el modo (y de calibrar, si es la varita)
+function terminarEleccion(nuevo) {
+  if (origenModos === 'pausa') {
+    aplicarModo(nuevo);                 // la misma partida sigue con el modo nuevo
+    $('pausa').hidden = false;
+  } else {
+    modoPendiente = nuevo;
+    $('inicio').hidden = false;         // instrucciones: qué runa vence a cada enemigo
+  }
+}
+
+document.querySelectorAll('.tarjeta-modo').forEach((t) =>
+  t.addEventListener('click', () => elegirModo(t.dataset.modo)));
+$('modos-volver').addEventListener('click', volverDeModos);
+
+// Instrucciones
+$('instr-jugar').addEventListener('click', () => empezar(modoPendiente || 'mouse'));
+$('instr-volver').addEventListener('click', () => abrirModos('portada'));
+
 $('otra-vez').addEventListener('click', reiniciarPartida);
 $('fin-menu').addEventListener('click', volverAlMenu);
 
@@ -382,15 +512,17 @@ function aplicarModo(nuevoModo) {
 
 function empezar(nuevoModo) {
   aplicarModo(nuevoModo);
+  document.body.classList.add('en-partida');   // muestra el HUD
   $('inicio').hidden = true;
+  $('modos').hidden = true;
   $('calibrar').hidden = true;
   reiniciarPartida();
 }
 
 // =============================================================
 // PAUSA (tecla Esc)
-// Desde la pausa se puede continuar, cambiar de modo de juego sin perder
-// la partida, calibrar el color de la varita o volver al menú.
+// Desde la pausa se puede continuar, cambiar el modo de juego sin perder
+// la partida (abre "Elige cómo jugar"), abrir la configuración o volver al menú.
 // =============================================================
 let pausado = false;
 
@@ -403,7 +535,9 @@ function pausar() {
   $('pausa-oleada').textContent = juego.oleada;
   $('pausa-puntaje').textContent = juego.puntaje;
   $('pausa-estado').textContent = '';
-  marcarModoPausa();
+  $('mensaje').classList.remove('visible');
+  terminarDibujo();
+  musicaBaja(true);
   $('pausa').hidden = false;
 }
 
@@ -414,76 +548,46 @@ function continuar() {
   $('pausa').hidden = true;
   pausado = false;
   segmentador.reiniciar();
+  musicaBaja(false);
   reloj.getDelta();                     // que el tiempo en pausa no cuente
   mostrarMensaje('▶', '', 600);
 }
 
-function marcarModoPausa() {
-  document.querySelectorAll('[data-modo-pausa]').forEach((b) =>
-    b.classList.toggle('activo', b.dataset.modoPausa === modo));
-}
-
-function bloquearPausa(bloquear) {
-  document.querySelectorAll('#pausa button').forEach((b) => (b.disabled = bloquear));
-}
-
-async function cambiarModoDesdePausa(nuevo) {
-  if (nuevo === modo) return;
-  $('pausa-estado').textContent = '';
-  bloquearPausa(true);
-  try {
-    if (nuevo === 'mouse') {
-      aplicarModo('mouse');
-    } else if (nuevo === 'camara') {
-      await prepararCamara('mano', $('pausa-estado'));
-      aplicarModo('camara');
-    } else {
-      await prepararCamara('color', $('pausa-estado'));
-      // Si ya hay un color elegido o guardado, se usa; si no, a calibrar
-      if (colorElegido || cargarColorGuardado()) aplicarModo('color');
-      else abrirCalibracion('pausa');
-    }
-  } catch (e) {
-    console.error(e);
-    $('pausa-estado').textContent = mensajeErrorCamara(e);
-    if (tracker && modo === 'camara') tracker.usarModo('mano');
-  } finally {
-    bloquearPausa(false);
-    marcarModoPausa();
-  }
-}
-
-document.querySelectorAll('[data-modo-pausa]').forEach((b) =>
-  b.addEventListener('click', () => cambiarModoDesdePausa(b.dataset.modoPausa)));
 $('continuar').addEventListener('click', continuar);
+$('boton-esc').addEventListener('click', pausar);
 $('pausa-menu').addEventListener('click', volverAlMenu);
-$('pausa-calibrar').addEventListener('click', async () => {
-  $('pausa-estado').textContent = '';
-  bloquearPausa(true);
-  try {
-    await prepararCamara('color', $('pausa-estado'));
-    abrirCalibracion('pausa');
-  } catch (e) {
-    console.error(e);
-    $('pausa-estado').textContent = mensajeErrorCamara(e);
-  } finally {
-    bloquearPausa(false);
-  }
-});
-
+$('pausa-config').addEventListener('click', () => abrirConfig('pausa'));
+$('pausa-modo').addEventListener('click', () => abrirModos('pausa'));
 function volverAlMenu() {
   pausado = false;
   calibrando = false;
   limpiarPartida();
   juego.estado = 'inicio';
-  for (const id of ['pausa', 'fin', 'calibrar']) $(id).hidden = true;
+  for (const id of ['pausa', 'fin', 'calibrar', 'config', 'inicio', 'modos']) $(id).hidden = true;
   $('mensaje').classList.remove('visible');
-  $('inicio').hidden = false;
+  segmentador.reiniciar();
+  trazoMouse = null;
+  ultimoTrazo = null;
+  puntoActual = null;
+  terminarDibujo();
+  musicaBaja(false);
+  document.body.classList.remove('en-partida');
+  $('portada').hidden = false;           // "volver al menú" lleva a la portada
 }
+
+// Tecla M: silenciar / activar el sonido
+addEventListener('keydown', (e) => {
+  if (e.key !== 'm' && e.key !== 'M') return;
+  const silencio = alternarSilencio();
+  mostrarMensaje(silencio ? 'Sonido apagado' : 'Sonido activado', 'tecla M', 1000);
+});
 
 addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!$('calibrar').hidden && origenCalibracion === 'pausa') salirDeCalibracion();
+  if (!$('config').hidden) cerrarConfig();
+  else if (!$('calibrar').hidden) salirDeCalibracion();
+  else if (!$('modos').hidden) volverDeModos();
+  else if (!$('inicio').hidden) abrirModos('portada');
   else if (pausado) continuar();
   else pausar();
 });
@@ -499,17 +603,16 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) pausa
 const CLAVE_COLOR = 'runcaster-color';
 let calibrando = false;
 let colorElegido = false;
-let origenCalibracion = 'inicio';  // 'inicio' o 'pausa': a dónde volver al terminar
 const historialDeteccion = [];   // últimos cuadros: 1 = detectó, 0 = no
 
-function abrirCalibracion(origen = 'inicio') {
-  origenCalibracion = origen;
+// Se abre al elegir la varita en "Elige cómo jugar"
+function abrirCalibracion() {
   const videoCal = $('video-calibrar');
   videoCal.srcObject = stream;
   videoCal.play();
-  $('color-listo').textContent = origen === 'pausa' ? 'Listo' : '¡A jugar!';
-  $('inicio').hidden = true;
-  $('pausa').hidden = true;
+  // Desde la portada sigue a las instrucciones; desde la pausa, vuelve a la pausa
+  $('color-listo').textContent = origenModos === 'pausa' ? 'Listo' : 'continuar';
+  for (const id of ['portada', 'inicio', 'pausa', 'modos']) $(id).hidden = true;
   $('calibrar').hidden = false;
   if (!colorElegido) cargarColorGuardado();
   calibrando = true;
@@ -538,19 +641,13 @@ function aplicarColor(rgb, hsv) {
   historialDeteccion.length = 0;
 }
 
-// Salir de la calibración sin aplicar el modo color
+// Salir de la calibración sin elegir la varita: vuelve a "Elige cómo jugar"
 function salirDeCalibracion() {
   calibrando = false;
   $('calibrar').hidden = true;
-  if (origenCalibracion === 'pausa') {
-    // volver al modo con el que se estaba jugando
-    if (modo === 'camara' && tracker) tracker.usarModo('mano');
-    aplicarModo(modo);
-    marcarModoPausa();
-    $('pausa').hidden = false;
-  } else {
-    $('inicio').hidden = false;
-  }
+  // Si se estaba jugando con la mano, el tracker vuelve a seguir la mano
+  if (origenModos === 'pausa' && modo === 'camara' && tracker) tracker.usarModo('mano');
+  abrirModos(origenModos);
 }
 
 function guardarColor() {
@@ -571,30 +668,30 @@ $('vista-calibrar').addEventListener('click', (e) => {
   const r = e.currentTarget.getBoundingClientRect();
   const color = leerColor($('video-calibrar'), (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
   if (color.hsv.s < 0.2) {
-    $('tasa-color').textContent = 'ese color es muy gris; elige uno más vivo';
+    $('tasa-color').textContent = 'ese color es muy gris, elige otro';
     return;
   }
   aplicarColor(color, color.hsv);
 });
 
+// El relleno del deslizador (color arena) sigue al valor
+function pintarDeslizador(el) {
+  const pct = ((el.value - el.min) / (el.max - el.min)) * 100;
+  el.style.setProperty('--pct', pct + '%');
+}
+pintarDeslizador($('tolerancia-color'));
 $('tolerancia-color').addEventListener('input', (e) => {
   tracker.configColor.toleranciaTono = Number(e.target.value);
   $('val-tolerancia-color').textContent = e.target.value;
+  pintarDeslizador(e.target);
   historialDeteccion.length = 0;
 });
 
 $('color-listo').addEventListener('click', () => {
   calibrando = false;
   guardarColor();
-  if (origenCalibracion === 'pausa') {
-    // se sigue la misma partida, ahora con la varita; se vuelve a la pausa
-    aplicarModo('color');
-    marcarModoPausa();
-    $('calibrar').hidden = true;
-    $('pausa').hidden = false;
-  } else {
-    empezar('color');
-  }
+  $('calibrar').hidden = true;
+  terminarEleccion('color');
 });
 $('color-volver').addEventListener('click', salirDeCalibracion);
 
@@ -642,9 +739,11 @@ function bucleCalibracion() {
   historialDeteccion.push(punto ? 1 : 0);
   if (historialDeteccion.length > 120) historialDeteccion.shift();
   const pct = Math.round(100 * historialDeteccion.reduce((a, b) => a + b, 0) / historialDeteccion.length);
-  $('tasa-color').textContent = punto ? `la veo ✓ (${pct}%)` : `no la veo (${pct}%)`;
-  // Aviso si hay otras cosas del mismo color en la imagen
-  $('aviso-color').hidden = !(tracker.configColor.pixelesFuera > 40);
+  $('tasa-color').textContent = punto ? `la veo (${pct}%)` : `no la veo (${pct}%)`;
+  // Aviso si hay otras cosas del mismo color en la imagen (reemplaza la ayuda)
+  const otrasCosas = tracker.configColor.pixelesFuera > 40;
+  $('aviso-color').hidden = !otrasCosas;
+  $('ayuda-color').hidden = otrasCosas;
 }
 
 // --- Dibujo del rastro sobre la pantalla ---
@@ -740,11 +839,20 @@ addEventListener('unhandledrejection', (e) => mostrarError(e.reason, 'promesa'))
 renderer.domElement.addEventListener('webglcontextlost', () =>
   mostrarError('La tarjeta gráfica dejó de dibujar (WebGL context lost).', 'dibujo'));
 
+// Las runas solo se leen durante la partida (no en menús, pausa ni fin)
+function enPartida() {
+  return !pausado && (juego.estado === 'jugando' || juego.estado === 'descanso');
+}
+
 function entrada() {
-  if (pausado) { puntoActual = null; return; }
+  if (!enPartida()) {
+    puntoActual = null;
+    if (segmentador.dibujando) { segmentador.reiniciar(); terminarDibujo(); }
+    return;
+  }
   if ((modo === 'camara' || modo === 'color') && tracker) {
     puntoActual = tracker.detectar();
-    if (juego.estado !== 'fin') segmentador.actualizar(puntoActual);
+    segmentador.actualizar(puntoActual);
   }
 }
 
@@ -805,7 +913,7 @@ const diagnostico = {
   mostrar(visible) {
     if (!this.panel) {
       this.panel = document.createElement('pre');
-      this.panel.style.cssText = 'position:fixed;left:16px;top:70px;margin:0;background:#000c;color:#9f9;' +
+      this.panel.style.cssText = 'position:fixed;left:16px;top:200px;margin:0;background:#000c;color:#9f9;' +
         'padding:8px 12px;border-radius:8px;font:12px/1.5 monospace;z-index:8;pointer-events:none';
       this.panel.textContent = 'Midiendo…';
       document.body.append(this.panel);

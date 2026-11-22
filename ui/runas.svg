@@ -1,0 +1,8 @@
+<svg width="938" height="172" viewBox="0 0 938 172" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="62" cy="86" r="56" stroke-width="12" stroke="#46F0FF"/>
+<line x1="345" y1="79" x2="558" y2="79" stroke-width="14" stroke="#F4FF79"/>
+<mask id="stroke0_22_77" fill="white">
+<path d="M858.5 0L927.349 129H789.651L858.5 0Z"/>
+</mask>
+<path d="M858.5 0L927.349 129H789.651L858.5 0Z" stroke-width="26" stroke="#FF4CFC" mask="url(#stroke0_22_77)"/>
+</svg>

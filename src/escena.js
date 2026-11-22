@@ -15,8 +15,11 @@ export const POSICION_TORRE = new THREE.Vector3(0, 0, 4);
 export function crearEscena(contenedor = document.body, modelos = {}) {
   // ---------- Escena, cámara y renderer ----------
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0b0a1a);
-  scene.fog = new THREE.Fog(0x0b0a1a, 28, 60);
+  // Noche de luna: azul profundo (no negro). La niebla del mismo color hace
+  // que el fondo del camino se funda con el cielo.
+  const COLOR_NOCHE = 0x1c2550;
+  scene.background = new THREE.Color(COLOR_NOCHE);
+  scene.fog = new THREE.Fog(COLOR_NOCHE, 30, 72);
 
   const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 100);
   // Vista elevada (como un tower defense): la torre queda abajo y
@@ -32,11 +35,16 @@ export function crearEscena(contenedor = document.body, modelos = {}) {
   renderer.setSize(innerWidth, innerHeight);
   renderer.setPixelRatio(ligero ? 1 : Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = !ligero;
+  // Tono "de cine": colores más vivos y luces que no se queman
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.2;
   contenedor.prepend(renderer.domElement);
 
   // ---------- Luces ----------
-  scene.add(new THREE.HemisphereLight(0x9988ff, 0x332244, 1.3));
-  const luna = new THREE.DirectionalLight(0xffffff, 1.6);
+  // Luz de ambiente: cielo azul lavanda arriba, reflejo verdoso del pasto abajo
+  scene.add(new THREE.HemisphereLight(0xa6b8ff, 0x3a4a3a, 1.8));
+  // Luna: luz blanca azulada, más fuerte para que se vean los modelos
+  const luna = new THREE.DirectionalLight(0xd4ddff, 2.4);
   luna.position.set(5, 12, 6);
   luna.castShadow = true;
   luna.shadow.camera.left = -15; luna.shadow.camera.right = 15;
@@ -46,18 +54,18 @@ export function crearEscena(contenedor = document.body, modelos = {}) {
   // ---------- Suelo y camino ----------
   const suelo = new THREE.Mesh(
     new THREE.PlaneGeometry(200, 200),
-    new THREE.MeshStandardMaterial({ color: 0x1d2a1f })
+    new THREE.MeshStandardMaterial({ color: 0x2f4d36 })   // pasto a la luz de la luna
   );
   suelo.rotation.x = -Math.PI / 2;
   suelo.receiveShadow = true;
   scene.add(suelo);
 
   const camino = new THREE.Mesh(
-    new THREE.PlaneGeometry(16, 34),
-    new THREE.MeshStandardMaterial({ color: 0x2b2a24 })
+    new THREE.PlaneGeometry(16, 70),
+    new THREE.MeshStandardMaterial({ color: 0x4d4436 })   // tierra
   );
   camino.rotation.x = -Math.PI / 2;
-  camino.position.set(0, 0.01, -11);
+  camino.position.set(0, 0.01, -29);                       // de z = -64 hasta la torre
   camino.receiveShadow = true;
   scene.add(camino);
 
@@ -114,30 +122,95 @@ export function crearEscena(contenedor = document.body, modelos = {}) {
     roca.castShadow = true;
     return roca;
   }
-  // Elige un modelo cargado o, si no hay, la forma básica
-  const decorados = [
-    () => (modelos.arbol ? clonarModelo(modelos.arbol) : arbolBasico()),
-    () => (modelos.pinos ? clonarModelo(modelos.pinos) : arbolBasico()),
-    () => (modelos.pinos ? clonarModelo(modelos.pinos) : arbolBasico()),
-    () => (modelos.rocas ? clonarModelo(modelos.rocas) : rocaBasica()),
+  // Tipos de decorado: modelo cargado o, si no hay, la forma básica.
+  // El tipo se elige al azar con estos pesos (igual en los dos lados).
+  const TIPOS_DECORADO = [
+    { peso: 3, crear: () => (modelos.arbol ? clonarModelo(modelos.arbol) : arbolBasico()) },
+    { peso: 5, crear: () => (modelos.pinos ? clonarModelo(modelos.pinos) : arbolBasico()) },
+    { peso: 2, crear: () => (modelos.rocas ? clonarModelo(modelos.rocas) : rocaBasica()) },
   ];
-  for (let i = 0; i < 30; i++) {
-    const lado = i % 2 ? 1 : -1;
-    const objeto = decorados[i % decorados.length]();
-    objeto.position.x = lado * azar(9.5, 22);
-    objeto.position.z = azar(-32, 10);
-    objeto.rotation.y = azar(0, Math.PI * 2);
-    objeto.scale.multiplyScalar(azar(0.8, 1.3));
-    scene.add(objeto);
+  const pesoTotal = TIPOS_DECORADO.reduce((t, d) => t + d.peso, 0);
+  function decoradoAlAzar() {
+    let r = Math.random() * pesoTotal;
+    for (const d of TIPOS_DECORADO) { if ((r -= d.peso) < 0) return d.crear(); }
+    return TIPOS_DECORADO[0].crear();
   }
-  // Unas rocas pequeñas al borde del camino
+  // Bosque disperso: en cada lado, una cuadrícula con un poco de azar en cada
+  // celda (y algunas celdas vacías). Así queda parejo y sin montones.
+  const PASO_Z = 6, PASO_X = 4.8, VACIAS = 0.3;
+  for (const lado of [-1, 1]) {
+    for (let z = -48; z < 12; z += PASO_Z) {
+      for (let x = 10; x < 28; x += PASO_X) {
+        if (Math.random() < VACIAS) continue;
+        const objeto = decoradoAlAzar();
+        objeto.position.set(lado * (x + azar(0, PASO_X * 0.7)), 0, z + azar(0, PASO_Z * 0.8));
+        objeto.rotation.y = azar(0, Math.PI * 2);
+        objeto.scale.multiplyScalar(azar(0.8, 1.3));
+        scene.add(objeto);
+      }
+    }
+  }
+  // Piedras que marcan el borde del camino, a ambos lados
+  const matBorde = new THREE.MeshStandardMaterial({ color: 0x8a8796, flatShading: true });
+  const geoBorde = new THREE.DodecahedronGeometry(0.35);
+  for (let z = -46; z < 2; z += azar(1.6, 2.6)) {
+    for (const lado of [-1, 1]) {
+      const piedra = new THREE.Mesh(geoBorde, matBorde);
+      piedra.position.set(lado * azar(8.1, 8.6), 0.12, z + azar(-0.4, 0.4));
+      piedra.rotation.set(azar(0, 3), azar(0, 3), 0);
+      piedra.scale.setScalar(azar(0.6, 1.3));
+      piedra.castShadow = true;
+      scene.add(piedra);
+    }
+  }
+  // Algunos grupos de rocas pequeñas junto al camino
   if (modelos.rocas) {
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 10; i++) {
       const roca = clonarModelo(modelos.rocas);
-      roca.position.set((i % 2 ? 1 : -1) * azar(8, 9), 0, azar(-26, 0));
+      roca.position.set((i % 2 ? 1 : -1) * azar(9, 10.5), 0, azar(-40, 2));
       roca.rotation.y = azar(0, Math.PI * 2);
       scene.add(roca);
     }
+  }
+
+  // ---------- Luciérnagas ----------
+  // Puntos de luz amarilla que flotan despacio sobre el pasto
+  const LUCIERNAGAS = 90;
+  const posiciones = new Float32Array(LUCIERNAGAS * 3);
+  const base = [];
+  for (let i = 0; i < LUCIERNAGAS; i++) {
+    const lado = Math.random() < 0.5 ? -1 : 1;
+    const b = { x: lado * azar(7, 24), y: azar(0.6, 3.5), z: azar(-46, 10), fase: azar(0, 6.3), vel: azar(0.4, 1) };
+    base.push(b);
+    posiciones.set([b.x, b.y, b.z], i * 3);
+  }
+  const geoLuz = new THREE.BufferGeometry();
+  geoLuz.setAttribute('position', new THREE.BufferAttribute(posiciones, 3));
+  const brillo = document.createElement('canvas');
+  brillo.width = brillo.height = 64;
+  const cb = brillo.getContext('2d');
+  const grad = cb.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,220,1)');
+  grad.addColorStop(0.3, 'rgba(255,240,140,.8)');
+  grad.addColorStop(1, 'rgba(255,230,100,0)');
+  cb.fillStyle = grad; cb.fillRect(0, 0, 64, 64);
+  const luciernagas = new THREE.Points(geoLuz, new THREE.PointsMaterial({
+    size: 0.55, map: new THREE.CanvasTexture(brillo), transparent: true,
+    depthWrite: false, blending: THREE.AdditiveBlending, color: 0xfff0a0,
+  }));
+  scene.add(luciernagas);
+  let tiempoLuz = 0;
+  function moverLuciernagas(delta) {
+    tiempoLuz += delta;
+    for (let i = 0; i < LUCIERNAGAS; i++) {
+      const b = base[i], t = tiempoLuz * b.vel + b.fase;
+      posiciones[i * 3] = b.x + Math.sin(t * 0.7) * 0.8;
+      posiciones[i * 3 + 1] = b.y + Math.sin(t * 1.3) * 0.4;
+      posiciones[i * 3 + 2] = b.z + Math.cos(t * 0.5) * 0.8;
+    }
+    geoLuz.attributes.position.needsUpdate = true;
+    // parpadeo suave de todas juntas
+    luciernagas.material.opacity = 0.75 + Math.sin(tiempoLuz * 2) * 0.25;
   }
 
   // ---------- Ajustar al tamaño de la ventana ----------
@@ -150,7 +223,9 @@ export function crearEscena(contenedor = document.body, modelos = {}) {
   // ---------- Temblor de cámara (cuando golpean la torre) ----------
   let temblor = 0;
   function sacudir(intensidad = 0.25) { temblor = intensidad; }
+  // Se llama cada cuadro: mueve las luciérnagas y aplica el temblor
   function actualizarCamara(delta) {
+    moverLuciernagas(delta);
     if (temblor > 0) {
       camera.position.set(
         posicionCamara.x + (Math.random() - 0.5) * temblor,
