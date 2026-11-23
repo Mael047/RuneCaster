@@ -310,7 +310,7 @@ export class SegmentadorTrazos {
         this.perdidoDesde ??= ahora;
         if (ahora - this.perdidoDesde > this.tiempoPerdido) {
           const ultimo = this.puntos.at(-1)?.t ?? ahora;
-          this.#terminar(this.puntos.filter((p) => p.t <= ultimo - this.recorteSalida), 'perdido');
+          this.#terminar(this.puntos.filter((p) => p.t <= ultimo - this.recorteSalida), 'perdido', ultimo);
         }
       }
       return;
@@ -357,15 +357,17 @@ export class SegmentadorTrazos {
       this.ancla = p;
       this.indiceQuieto = this.puntos.length - 1;
     } else if (ahora - this.ancla.t >= this.tiempoPausa) {
-      return this.#terminar(this.puntos.slice(0, this.indiceQuieto + 1), 'pausa');
+      return this.#terminar(this.puntos.slice(0, this.indiceQuieto + 1), 'pausa', this.ancla.t);
     }
 
     if (ahora - inicio.t > this.tiempoMaximo) this.#terminar(this.puntos, 'tiempo');
   }
 
-  #terminar(puntos, motivo) {
+  // fin: momento en que de verdad terminó el gesto (con "pausa", cuando la
+  // mano se quedó quieta; con "perdido", la última vez que se vio el punto)
+  #terminar(puntos, motivo, fin = this.ahora) {
     this.reiniciar();
     this.esperaHasta = this.ahora + this.tiempoEspera;
-    this.alTerminar(puntos.map(({ x, y }) => ({ x, y })), motivo);
+    this.alTerminar(puntos.map(({ x, y }) => ({ x, y })), motivo, fin);
   }
 }

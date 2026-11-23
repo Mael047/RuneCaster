@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>RUNCASTER · Registro de pruebas</title>
+  <!-- Página solo para el equipo: muestra lo que el juego guardó en este navegador.
+       No está enlazada desde el juego. -->
+  <style>
+    @font-face { font-family: 'Silkscreen'; font-weight: 700; src: url('ui/fuentes/silkscreen-700.woff2') format('woff2'); }
+    :root { --tinta: #29235e; --crema: #fcedd9; --arena: #ebc99b; --fondo: #14122b; --panel: #1f1b45; --linea: #3a3470; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--fondo); color: var(--crema); font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    main { max-width: 1500px; margin: 0 auto; padding: 28px 28px 60px; }
+    h1 { font-family: 'Silkscreen', monospace; font-size: 30px; margin: 0 0 4px; letter-spacing: 1px; }
+    h2 { font-size: 19px; margin: 34px 0 10px; color: var(--arena); }
+    .sub { opacity: .7; margin: 0 0 20px; }
+    .barra { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px; }
+    button, select, label.boton { font: inherit; border: 0; border-radius: 10px; padding: 8px 14px; cursor: pointer;
+      background: var(--arena); color: var(--tinta); font-weight: 600; }
+    button.secundario, label.boton { background: var(--crema); }
+    button.peligro { background: #ff8a8a; }
+    select { background: var(--panel); color: var(--crema); border: 1px solid var(--linea); font-weight: 400; }
+    .filtros { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 14px 0 0; opacity: .95; }
+    .filtros label { display: flex; gap: 8px; align-items: center; }
+    .tarjetas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+    .tarjeta { background: var(--panel); border-radius: 14px; padding: 12px 18px; min-width: 150px; }
+    .tarjeta b { display: block; font-size: 26px; }
+    .tarjeta span { opacity: .7; font-size: 13px; }
+    .tabla-scroll { overflow-x: auto; border-radius: 14px; background: var(--panel); }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--linea); vertical-align: top; }
+    th { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; opacity: .75; font-weight: 600; white-space: nowrap; position: sticky; top: 0; background: var(--panel); }
+    #partidas td:first-child, #sesiones td:first-child { white-space: nowrap; }
+    td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    tr:last-child td { border-bottom: 0; }
+    .cat td { background: rgba(235, 201, 155, .12); font-weight: 700; color: var(--arena); }
+    .escala { font-size: 12px; opacity: .65; }
+    .nota { font-size: 12px; opacity: .7; }
+    .p { display: inline-block; min-width: 34px; text-align: center; border-radius: 8px; padding: 2px 8px; font-weight: 700; color: #14122b; }
+    .p5 { background: #6ee7a8; } .p4 { background: #b5e86e; } .p3 { background: #f5d76e; } .p2 { background: #f5a76e; } .p1 { background: #ff8a8a; }
+    .p0 { background: transparent; color: var(--crema); opacity: .4; }
+    .vacio { padding: 30px; text-align: center; opacity: .7; }
+    details summary { cursor: pointer; }
+    .error { font-family: ui-monospace, monospace; font-size: 12px; margin: 4px 0; }
+    .grave { color: #ff9c9c; }
+    #aviso { margin-top: 10px; min-height: 1.4em; color: var(--arena); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>RUNCASTER · registro de pruebas</h1>
+  <p class="sub">Datos guardados en <b>este navegador</b>, en esta dirección. Para juntar los de varios computadores, exporta el JSON en cada uno e impórtalos aquí.</p>
+
+  <div class="barra">
+    <button id="actualizar">Actualizar</button>
+    <button class="secundario" id="csv-partidas">Exportar partidas (CSV)</button>
+    <button class="secundario" id="csv-sesiones">Exportar sesiones (CSV)</button>
+    <button class="secundario" id="json">Exportar todo (JSON)</button>
+    <label class="boton">Importar JSON <input type="file" id="importar" accept=".json,application/json" hidden /></label>
+    <button class="peligro" id="borrar">Borrar todo</button>
+  </div>
+  <div class="filtros">
+    <label>Jugador <select id="f-jugador"></select></label>
+    <label>Modo <select id="f-modo">
+      <option value="">todos</option><option value="camara">cámara (mano)</option>
+      <option value="color">varita</option><option value="mouse">mouse</option></select></label>
+    <label>Desde <select id="f-fecha"></select></label>
+  </div>
+  <p id="aviso"></p>
+
+  <div class="tarjetas" id="tarjetas"></div>
+
+  <h2>Evaluación del proyecto interactivo</h2>
+  <div class="tabla-scroll"><table id="evaluacion"></table></div>
+
+  <h2>Partidas</h2>
+  <div class="tabla-scroll"><table id="partidas"></table></div>
+
+  <h2>Sesiones (cada vez que se abrió el juego)</h2>
+  <div class="tabla-scroll"><table id="sesiones"></table></div>
+</main>
+
+<script type="module">
+import { leerRegistro, escribirRegistro, borrarRegistro, METRICAS, valoresPartida, valoresSesion, resumir } from './src/registro.js';
+
+const $ = (id) => document.getElementById(id);
+const MODOS = { camara: 'cámara', color: 'varita', mouse: 'mouse' };
+const fecha = (t) => new Date(t).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
+const dia = (t) => new Date(t).toLocaleDateString('es-CO');
+const inicioDelDia = (t) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
+const escapar = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const formato = (v, unidad = '', dec = 1) => {
+  if (v == null || Number.isNaN(v)) return '—';
+  if (typeof v === 'boolean') return v ? 'sí' : 'no';
+  const n = unidad === 'ms' ? Math.round(v) : +v.toFixed(dec);
+  return n.toLocaleString('es-CO') + (unidad ? (unidad === '%' ? '%' : ' ' + unidad) : '');
+};
+const insignia = (p) => p == null ? '<span class="p p0">—</span>'
+  : `<span class="p p${Math.round(p)}">${Number.isInteger(p) ? p : p.toFixed(1).replace('.', ',')}</span>`;
+const metrica = (id) => METRICAS.find((m) => m.id === id);
+const calif = (id, v) => (v == null ? null : metrica(id).calificar(v));
+
+let datos;
+
+function filtrar() {
+  const jugador = $('f-jugador').value, modoF = $('f-modo').value, desde = $('f-fecha').value;
+  let sesiones = datos.sesiones;
+  if (desde) sesiones = sesiones.filter((s) => s.inicio >= +desde);
+  const partidas = [];
+  for (const s of sesiones) for (const p of s.partidas || []) {
+    if (jugador && p.jugador !== jugador) continue;
+    if (modoF && !(p.modos || []).includes(modoF)) continue;
+    partidas.push({ ...p, sesion: s });
+  }
+  // Con filtro de jugador o modo, solo las sesiones donde jugó
+  if (jugador || modoF) sesiones = sesiones.filter((s) => partidas.some((p) => p.sesion === s));
+  return { sesiones, partidas };
+}
+
+function llenarFiltros() {
+  const jugadores = [...new Set(datos.sesiones.flatMap((s) => (s.partidas || []).map((p) => p.jugador)))].sort();
+  const dias = [...new Set(datos.sesiones.map((s) => inicioDelDia(s.inicio)))].map(String);
+  const previoJ = $('f-jugador').value, previoF = $('f-fecha').value;
+  $('f-jugador').innerHTML = '<option value="">todos</option>' + jugadores.map((j) => `<option>${escapar(j)}</option>`).join('');
+  $('f-fecha').innerHTML = '<option value="">siempre</option>' + dias.map((d) => `<option value="${d}">el ${dia(+d)} en adelante</option>`).join('');
+  if (jugadores.includes(previoJ)) $('f-jugador').value = previoJ;
+  if (dias.includes(previoF)) $('f-fecha').value = previoF;
+}
+
+function pintar() {
+  const { sesiones, partidas } = filtrar();
+  const r = resumir(sesiones, partidas);
+  const minutos = partidas.reduce((a, p) => a + (p.segundosJugados || 0), 0) / 60;
+  $('tarjetas').innerHTML = [
+    [sesiones.length, 'sesiones'], [partidas.length, 'partidas'],
+    [new Set(partidas.map((p) => p.jugador)).size, 'jugadores'],
+    [formato(minutos, '', 1), 'minutos jugados'],
+    [partidas.reduce((a, p) => a + (p.trazos || 0), 0), 'trazos'],
+  ].map(([v, t]) => `<div class="tarjeta"><b>${v}</b><span>${t}</span></div>`).join('');
+
+  // ---- Evaluación ----
+  let html = '<tr><th>Métrica</th><th>Valor</th><th>Puntaje</th><th>Escala</th><th>Basado en</th></tr>';
+  let categoria = '';
+  for (const m of METRICAS) {
+    if (m.categoria !== categoria) { categoria = m.categoria; html += `<tr class="cat"><td colspan="5">${categoria}</td></tr>`; }
+    const x = r[m.id];
+    const valor = m.id === 'nivel' ? (x.valor == null ? '—' : formato(x.valor, '%') + ' de las partidas') : formato(x.valor, m.unidad, m.unidad === '' ? 2 : 1);
+    const base = (m.porSesion ? `${x.n} sesión(es)` : `${x.n} partida(s)`) + (x.nota ? `<div class="nota">${escapar(x.nota)}</div>` : '');
+    html += `<tr><td>${m.nombre}<div class="nota">${m.detalle}</div></td><td class="n">${valor}</td><td>${insignia(x.puntaje)}</td>
+      <td class="escala">${m.escala}</td><td>${base}</td></tr>`;
+  }
+  $('evaluacion').innerHTML = html;
+
+  // ---- Partidas ----
+  if (!partidas.length) {
+    $('partidas').innerHTML = '<tr><td class="vacio">Todavía no hay partidas guardadas con estos filtros.</td></tr>';
+  } else {
+    html = `<tr><th>Fecha</th><th>Jugador</th><th>Modo</th><th>Resultado</th><th>Tiempo</th><th>Oleada</th><th>Puntaje</th>
+      <th>Runas</th><th>% runas</th><th>Detección</th><th>Nivel</th><th>Retraso</th><th>Lock-on</th><th>Intentos/runa</th><th>1ª runa</th></tr>`;
+    for (const p of [...partidas].reverse()) {
+      const v = valoresPartida(p);
+      const deteccion = v.deteccionVarita ?? v.deteccionMano;
+      const idDet = v.deteccionVarita != null ? 'deteccionVarita' : 'deteccionMano';
+      const celda = (id, valor, unidad, dec) => `<td class="n">${formato(valor, unidad, dec)} ${valor == null ? '' : insignia(calif(id, valor))}</td>`;
+      html += `<tr><td>${fecha(p.inicio)}</td><td>${escapar(p.jugador)}</td><td>${(p.modos || []).map((m) => MODOS[m] || m).join(' → ')}</td>
+        <td>${p.resultado}</td><td class="n">${formato((p.segundosJugados || 0) / 60, 'min', 1)}</td><td class="n">${p.oleada}</td><td class="n">${p.puntaje}</td>
+        <td class="n">${p.reconocidas}/${p.trazos}</td>${celda('runas', v.runas, '%')}${celda(idDet, deteccion, '%')}
+        <td class="n">${v.nivel ? 'sí' : 'no'} ${insignia(calif('nivel', v.nivel))}</td>
+        ${celda('retraso', v.retraso, 'ms')}${celda('lockOn', v.lockOn, '%')}${celda('intentos', v.intentos, '', 2)}
+        <td class="n">${p.primeraRunaS == null ? '—' : formato(p.primeraRunaS, 's')} ${insignia(p.primeraRunaS == null ? (p.segundosJugados > 0 ? 1 : null) : calif('primeraRuna', p.primeraRunaS))}</td></tr>`;
+    }
+    $('partidas').innerHTML = html;
+  }
+
+  // ---- Sesiones ----
+  if (!sesiones.length) {
+    $('sesiones').innerHTML = '<tr><td class="vacio">Todavía no hay sesiones guardadas.</td></tr>';
+  } else {
+    html = '<tr><th>Fecha</th><th>Carga</th><th>Crasheos</th><th>Errores</th><th>Partidas</th><th>Pantalla</th><th>Navegador</th></tr>';
+    for (const s of [...sesiones].reverse()) {
+      const v = valoresSesion(s);
+      const errores = (s.errores || []).length
+        ? `<details><summary>${v.errores} ${insignia(calif('errores', v.errores))}</summary>${s.errores.map((e) =>
+            `<div class="error ${e.grave ? 'grave' : ''}">[${escapar(e.tipo)}]${e.grave ? ' (grave)' : ''} ${escapar(e.mensaje)}${e.veces > 1 ? ` ×${e.veces}` : ''}</div>`).join('')}</details>`
+        : `0 ${insignia(5)}`;
+      html += `<tr><td>${fecha(s.inicio)}</td><td class="n">${formato(v.carga, 's', 2)} ${insignia(calif('carga', v.carga))}</td>
+        <td class="n">${v.crasheos} ${insignia(calif('crasheos', v.crasheos))}</td><td>${errores}</td>
+        <td class="n">${(s.partidas || []).length}</td><td>${escapar(s.pantalla)}</td><td class="nota">${escapar(navegador(s.navegador))}</td></tr>`;
+    }
+    $('sesiones').innerHTML = html;
+  }
+}
+
+function navegador(ua = '') {
+  const so = /Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /Linux/.test(ua) ? 'Linux' : '';
+  const nav = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'otro';
+  return `${nav} · ${so}`;
+}
+
+// ---------- Exportar ----------
+function descargar(nombre, texto, tipo) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([texto], { type: tipo }));
+  a.download = nombre;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const hoy = () => new Date().toISOString().slice(0, 10);
+// CSV con ; y coma decimal, que es como lo abre Excel en español
+const numCSV = (v, dec = 1) => (v == null || Number.isNaN(v) ? '' : typeof v === 'boolean' ? (v ? 'sí' : 'no') : String(+v.toFixed(dec)).replace('.', ','));
+const filaCSV = (celdas) => celdas.map((c) => { const t = String(c ?? ''); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; }).join(';');
+
+$('csv-partidas').addEventListener('click', () => {
+  const { partidas } = filtrar();
+  const filas = [['fecha', 'jugador', 'modos', 'resultado', 'minutos jugados', 'oleada', 'puntaje', 'oleadas superadas',
+    'trazos', 'runas reconocidas', '% runas', 'pts % runas', '% detección varita', 'pts detección varita', '% detección mano',
+    'completó nivel', 'pts nivel', 'retraso prom (ms)', 'retraso máx (ms)', 'pts retraso', 'ataques', 'con lock-on', '% lock-on', 'pts lock-on',
+    'intentos por runa', 'pts intentos', '1ª runa (s)', 'pts 1ª runa', 'círculos', 'líneas', 'triángulos']];
+  for (const p of partidas) {
+    const v = valoresPartida(p);
+    filas.push([fecha(p.inicio), p.jugador, (p.modos || []).map((m) => MODOS[m] || m).join(' > '), p.resultado,
+      numCSV((p.segundosJugados || 0) / 60, 2), p.oleada, p.puntaje, p.oleadasSuperadas, p.trazos, p.reconocidas,
+      numCSV(v.runas), calif('runas', v.runas), numCSV(v.deteccionVarita), calif('deteccionVarita', v.deteccionVarita), numCSV(v.deteccionMano),
+      numCSV(v.nivel), calif('nivel', v.nivel), numCSV(v.retraso, 0), p.retraso?.max ?? '', calif('retraso', v.retraso),
+      p.ataques, p.conLockOn, numCSV(v.lockOn), calif('lockOn', v.lockOn), numCSV(v.intentos, 2), calif('intentos', v.intentos),
+      numCSV(p.primeraRunaS), p.primeraRunaS == null ? '' : calif('primeraRuna', p.primeraRunaS),
+      p.porRuna?.circulo ?? 0, p.porRuna?.linea ?? 0, p.porRuna?.triangulo ?? 0]);
+  }
+  descargar(`runcaster-partidas-${hoy()}.csv`, '﻿' + filas.map(filaCSV).join('\r\n'), 'text/csv;charset=utf-8');
+});
+
+$('csv-sesiones').addEventListener('click', () => {
+  const { sesiones } = filtrar();
+  const filas = [['fecha', 'carga (s)', 'pts carga', 'crasheos', 'pts crasheos', 'errores', 'pts errores', 'detalle de errores', 'partidas', 'pantalla', 'navegador']];
+  for (const s of sesiones) {
+    const v = valoresSesion(s);
+    filas.push([fecha(s.inicio), numCSV(v.carga, 2), calif('carga', v.carga), v.crasheos, calif('crasheos', v.crasheos),
+      v.errores, calif('errores', v.errores), (s.errores || []).map((e) => `[${e.tipo}] ${e.mensaje}${e.veces > 1 ? ' x' + e.veces : ''}`).join(' | '),
+      (s.partidas || []).length, s.pantalla, navegador(s.navegador)]);
+  }
+  descargar(`runcaster-sesiones-${hoy()}.csv`, '﻿' + filas.map(filaCSV).join('\r\n'), 'text/csv;charset=utf-8');
+});
+
+$('json').addEventListener('click', () =>
+  descargar(`runcaster-registro-${hoy()}.json`, JSON.stringify(leerRegistro(), null, 1), 'application/json'));
+
+// ---------- Importar (junta con lo que ya hay, sin duplicar) ----------
+$('importar').addEventListener('change', async (e) => {
+  const archivo = e.target.files[0];
+  e.target.value = '';
+  if (!archivo) return;
+  try {
+    const otro = JSON.parse(await archivo.text());
+    if (!Array.isArray(otro?.sesiones)) throw new Error('no parece un registro de RUNCASTER');
+    const actual = leerRegistro();
+    const ids = new Set(actual.sesiones.map((s) => s.id));
+    const nuevas = otro.sesiones.filter((s) => s && s.id && !ids.has(s.id));
+    actual.sesiones.push(...nuevas);
+    escribirRegistro(actual);
+    $('aviso').textContent = `Se importaron ${nuevas.length} sesión(es) nuevas (${otro.sesiones.length - nuevas.length} ya estaban).`;
+    recargar();
+  } catch (err) {
+    $('aviso').textContent = 'No se pudo importar: ' + err.message;
+  }
+});
+
+$('borrar').addEventListener('click', () => {
+  if (!confirm('¿Borrar TODO el registro de este navegador? No se puede deshacer. (Exporta el JSON antes si lo necesitas.)')) return;
+  borrarRegistro();
+  $('aviso').textContent = 'Registro borrado.';
+  recargar();
+});
+
+function recargar() { datos = leerRegistro(); llenarFiltros(); pintar(); }
+$('actualizar').addEventListener('click', () => { $('aviso').textContent = ''; recargar(); });
+for (const id of ['f-jugador', 'f-modo', 'f-fecha']) $(id).addEventListener('change', pintar);
+// Si el juego está abierto en otra pestaña, se actualiza solo
+addEventListener('storage', (e) => { if (e.key === 'runcaster-registro' || e.key === null) recargar(); });
+recargar();
+</script>
+</body>
+</html>

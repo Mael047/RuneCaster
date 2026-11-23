@@ -25,6 +25,7 @@
 
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import { crearFiltroPunto } from './filtro.js';
+import { registrarError } from './registro.js';
 
 // Archivos que MediaPipe descarga la primera vez (motor y modelo entrenado)
 const MEDIAPIPE_WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
@@ -95,6 +96,7 @@ async function crearDetectorMano(delegado = 'GPU', avisarDelegado = () => {}) {
       resultado = detector.detectForVideo(video, ahora);
     } catch (e) {
       console.error('Error de MediaPipe al detectar la mano', e);
+      registrarError('detección', e);
       if (actual === 'GPU') {
         // Si falla con la GPU, cambiamos a la CPU sin detener el juego
         cambiando = true;
