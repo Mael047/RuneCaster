@@ -24,8 +24,12 @@ import { prepararAudio, activar as activarSonido, reproducir, empezarDibujo, ter
 import { encenderCamara, crearTracker, leerColor, fijarColor, ANCHO_COLOR, ALTO_COLOR } from './tracking.js';
 import { reconocerRuna, SegmentadorTrazos, AJUSTES } from './runas.js';
 import { guardarPuntaje, leerNombre, recordarNombre, limpiarNombre, MAXIMO } from './puntajes.js';
+import * as registro from './registro.js';
 
 const $ = (id) => document.getElementById(id);
+
+// Registro para las pruebas de usuario (no se muestra en el juego; se ve en registro.html)
+registro.iniciarSesion();
 
 // ---------- Sonido ----------
 // Se prepara apenas abre la página, para que la ambientación suene ya en
@@ -99,6 +103,7 @@ const modelos = await cargarModelos((n, total) => {
 });
 $('estado-carga').textContent = '';
 $('comenzar').disabled = false;
+registro.marcarCarga(performance.now());   // ms desde que se empezó a abrir la página
 // Portada -> elegir modo de juego
 $('comenzar').addEventListener('click', () => {
   activarSonido();                      // el navegador solo deja sonar tras un clic
@@ -156,6 +161,7 @@ function iniciarOleada(n) {
   }
 
   $('oleada').textContent = n;
+  registro.actualizarMarcador({ puntaje: juego.puntaje, oleada: n });
   document.querySelectorAll('.ficha').forEach((f) =>
     f.classList.toggle('oculta', !tipos.includes(f.dataset.tipo)));
 
@@ -219,11 +225,13 @@ function buscarObjetivo(tipo) {
     a.position.distanceTo(POSICION_TORRE) < b.position.distanceTo(POSICION_TORRE) ? a : b);
 }
 
-function lanzarHechizo(tipo) {
+// origen: 'runa' si viene de un trazo; 'teclado' (teclas 1, 2, 3) solo para probar
+function lanzarHechizo(tipo, de = 'teclado') {
   if (pausado || (juego.estado !== 'jugando' && juego.estado !== 'descanso')) return;
   const info = TIPOS[tipo];
   const origen = cristal.getWorldPosition(new THREE.Vector3());
   const objetivo = buscarObjetivo(tipo);
+  registro.ataque({ lockOn: !!objetivo, teclado: de !== 'runa' });
 
   if (!objetivo) {
     // Runa bien hecha, pero no hay enemigos de ese tipo: chispas y aviso
@@ -303,6 +311,7 @@ function recibirDanio(cantidad) {
 function sumarPuntos(n) {
   juego.puntaje += n;
   $('puntaje').textContent = juego.puntaje;
+  registro.actualizarMarcador({ puntaje: juego.puntaje, oleada: juego.oleada });
 }
 
 function terminarPartida() {
@@ -311,6 +320,7 @@ function terminarPartida() {
   $('fin-oleada').textContent = juego.oleada;
   $('fin-puntaje').textContent = juego.puntaje;
   $('fin-jugador').textContent = nombreJugador;
+  registro.terminarPartida('perdió', { puntaje: juego.puntaje, oleada: juego.oleada });
   $('mensaje').classList.remove('visible');   // que el aviso de oleada no quede encima
   const { lista, puesto } = guardarPuntaje({
     nombre: nombreJugador, puntaje: juego.puntaje, oleada: juego.oleada, modo,
@@ -362,6 +372,7 @@ function limpiarPartida() {
 
 function reiniciarPartida() {
   limpiarPartida();
+  registro.empezarPartida({ jugador: nombreJugador, modo });
   $('fin').hidden = true;
   iniciarOleada(1);
 }
@@ -389,17 +400,21 @@ const ctx = lienzo.getContext('2d');
 
 const segmentador = new SegmentadorTrazos({
   alEmpezar: () => { if (enPartida()) empezarDibujo(); },
-  alTerminar: (puntos) => { terminarDibujo(); procesarTrazo(puntos); },
+  alTerminar: (puntos, motivo, fin) => { terminarDibujo(); procesarTrazo(puntos, fin); },
 });
 
-function procesarTrazo(puntos) {
+// finGesto: momento (performance.now) en que terminó el trazo, para medir el retraso
+let respuestaPendiente = null;
+function procesarTrazo(puntos, finGesto = performance.now()) {
   if (!enPartida()) return;            // fuera de la partida no se reconocen runas
   const r = reconocerRuna(puntos);
   // Movimientos diminutos se ignoran en silencio (acomodar la mano, temblor)
   if (r.motivo === 'trazo muy pequeño' || r.motivo === 'trazo muy corto') return;
+  registro.trazo(r.runa || null);
+  respuestaPendiente = finGesto;       // se mide cuando la respuesta se dibuje en pantalla
   if (r.runa) {
     ultimoTrazo = { puntos, color: '#' + TIPOS[r.runa].color.toString(16).padStart(6, '0'), hasta: performance.now() + 700 };
-    lanzarHechizo(r.runa);
+    lanzarHechizo(r.runa, 'runa');
   } else {
     // El "fallo amable": avisa, no castiga
     ultimoTrazo = { puntos, color: '#ff8a8a', hasta: performance.now() + 700 };
@@ -420,12 +435,12 @@ lienzo.addEventListener('pointerdown', (e) => {
   empezarDibujo();
 });
 lienzo.addEventListener('pointermove', (e) => { if (trazoMouse) trazoMouse.push(puntoMouse(e)); });
-lienzo.addEventListener('pointerup', () => {
+lienzo.addEventListener('pointerup', (e) => {
   if (!trazoMouse) return;
   terminarDibujo();
   const puntos = trazoMouse;
   trazoMouse = null;
-  procesarTrazo(puntos);
+  procesarTrazo(puntos, e.timeStamp);
 });
 
 // --- Botones de inicio ---
@@ -496,6 +511,7 @@ async function elegirModo(nuevo) {
     if (nuevo === 'color') await prepararCamara('color');
   } catch (e) {
     console.error(e);
+    registro.registrarError('cámara', e);
     $('modos-estado').classList.add('error');
     $('modos-estado').textContent = mensajeErrorCamara(e);
     if (tracker && modo === 'camara') tracker.usarModo('mano').catch(() => {});
@@ -572,6 +588,7 @@ $('fin-menu').addEventListener('click', volverAlMenu);
 // Cambia el modo de entrada sin tocar la partida
 function aplicarModo(nuevoModo) {
   modo = nuevoModo;
+  registro.cambiarModo(modo);
   // El reconocedor corrige el estiramiento según la forma del área de dibujo
   AJUSTES.aspecto = modo === 'mouse' ? innerWidth / innerHeight : 4 / 3;
   document.body.classList.remove('modo-camara', 'modo-color', 'modo-mouse');
@@ -630,6 +647,7 @@ $('pausa-menu').addEventListener('click', volverAlMenu);
 $('pausa-config').addEventListener('click', () => abrirConfig('pausa'));
 $('pausa-modo').addEventListener('click', () => abrirModos('pausa'));
 function volverAlMenu() {
+  registro.terminarPartida('abandonó', { puntaje: juego.puntaje, oleada: juego.oleada });
   pausado = false;
   calibrando = false;
   limpiarPartida();
@@ -880,6 +898,10 @@ function bucle() {
   intentar('juego', () => logica(delta, tiempo));
   intentar('dibujo', () => { renderer.render(scene, camera); dibujarRastro(); });
   const t2 = performance.now();
+  if (respuestaPendiente !== null) {   // la respuesta a la última runa ya está dibujada
+    registro.respuesta(t2 - respuestaPendiente);
+    respuestaPendiente = null;
+  }
   diagnostico.registrar(t1 - t0, t2 - t1);
 }
 
@@ -896,6 +918,8 @@ function intentar(parte, fn) {
 let errorMostrado = false;
 function mostrarError(e, parte = '') {
   console.error(parte, e);
+  // Los fallos de la entrada (cámara/detección) no rompen el juego; los demás cuentan como crasheo
+  registro.registrarError(parte === 'entrada' ? 'detección' : parte || 'juego', e, parte !== 'entrada');
   diagnostico.ultimoError = `${parte ? '[' + parte + '] ' : ''}${e?.message || e}`;
   if (errorMostrado) return;
   errorMostrado = true;
@@ -924,12 +948,14 @@ function entrada() {
   }
   if ((modo === 'camara' || modo === 'color') && tracker) {
     puntoActual = tracker.detectar();
+    registro.cuadroCamara(modo, !!puntoActual);
     segmentador.actualizar(puntoActual);
   }
 }
 
 function logica(delta, tiempo) {
   if (pausado) return;                 // en pausa todo se queda quieto
+  if (juego.estado === 'jugando' || juego.estado === 'descanso') registro.sumarTiempo(delta);
   if (juego.estado === 'jugando') {
     juego.relojAparicion += delta;
     if (juego.porAparecer.length && juego.relojAparicion >= juego.intervalo) {
@@ -940,6 +966,7 @@ function logica(delta, tiempo) {
       juego.estado = 'descanso';
       juego.relojDescanso = 2.5;
       mostrarMensaje('¡Oleada superada!', '', 1800);
+      registro.oleadaSuperada();
     }
   } else if (juego.estado === 'descanso') {
     juego.relojDescanso -= delta;
